@@ -1,0 +1,216 @@
+{# Tableau de bord d'un mois de clôture — macros partagées par la fiche d'une clôture, la page d'un mois
+   et les pages de confirmation.
+
+   Attendent `t` = cloture_modules_service.tableau_de_bord(...). RIEN n'est stocké ici : chaque bloqueur
+   affiché vient d'être relu dans son module d'origine ; « Traiter » ouvre la VRAIE page de ce module,
+   déjà filtrée sur le mois, jamais une copie. Aucun identifiant technique n'est affiché. #}
+
+{% macro icone(nom, classe="") -%}
+<svg class="clo-icone {{ classe }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+{%- if nom == 'clos' %}<path d="M5 12.5l4.5 4.5L19 7.5"/>
+{%- elif nom == 'pret' %}<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>
+{%- elif nom == 'traiter' %}<path d="M12 4.2l9 15.6H3z"/><path d="M12 10v4.2"/><path d="M12 17.4h.01"/>
+{%- elif nom == 'revoir' %}<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4.5V11h-6.5"/>
+{%- elif nom == 'fleche' %}<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>
+{%- elif nom == 'cadenas' %}<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>
+{%- elif nom == 'info' %}<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8h.01"/>
+{%- else %}<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>
+{%- endif %}</svg>
+{%- endmacro %}
+
+{# État d'un module : icône ET texte, jamais la couleur seule. #}
+{% macro pastille(m) -%}
+{%- set famille = {'CLOS': 'clos', 'PRET': 'pret', 'A_TRAITER': 'traiter', 'A_REVOIR': 'revoir'}[m.etat] -%}
+<span class="clo-etat clo-etat--{{ famille }}" data-testid="module-etat">{{ icone(famille) }}
+{%- if m.etat == 'A_TRAITER' %}{{ m.nb_bloqueurs }} bloqueur{{ 's' if m.nb_bloqueurs > 1 }}
+{%- else %}{{ m.etat_libelle }}{% endif %}</span>
+{%- endmacro %}
+
+{# Où en est la clôture du mois. #}
+{% macro pastille_cloture(t) -%}
+{%- set famille = {'NON_DEMARREE': 'neutre', 'EN_COURS': 'pret', 'VALIDEE': 'pret', 'CLOTURE': 'clos'}[t.etat_cloture] -%}
+{%- set pictogramme = {'NON_DEMARREE': 'info', 'EN_COURS': 'pret', 'VALIDEE': 'pret', 'CLOTURE': 'cadenas'}[t.etat_cloture] -%}
+<span class="clo-etat clo-etat--{{ famille }}" data-testid="etat-cloture">{{ icone(pictogramme) }}{{ t.etat_cloture_libelle }}</span>
+{%- endmacro %}
+
+{# Une barre de progression : un segment par module (plein = clôturé, contour = prêt, hachuré = à traiter). #}
+{% macro barre(t) -%}
+<div class="clo-barre" role="progressbar" aria-label="Modules clôturés" aria-valuemin="0" aria-valuemax="{{ t.nb_total }}" aria-valuenow="{{ t.nb_clos }}" aria-valuetext="{{ t.nb_clos }} module{{ 's' if t.nb_clos > 1 }} clôturé{{ 's' if t.nb_clos > 1 }} sur {{ t.nb_total }}" data-testid="progression-modules">
+{%- for m in t.modules %}<span data-etat="{{ m.etat }}"></span>{% endfor -%}
+</div>
+{%- endmacro %}
+
+{# Un groupe de bloqueurs de même nature : ce que c'est, pourquoi ça bloque, où le traiter. #}
+{% macro groupe(g, informatif=false) %}
+{% set nb = g['items']|length %}
+<li class="clo-bloqueur" data-testid="{{ 'information' if informatif else 'bloqueur' }}">
+  <div>
+    <p class="clo-bloqueur__titre">{{ g.libelle }}</p>
+    <p class="clo-bloqueur__pourquoi">{{ g.pourquoi }}</p>
+  </div>
+  {% if g.lien and not informatif %}
+  <a class="btn btn-secondary btn-sm clo-traiter" href="{{ g.lien }}" data-testid="traiter" aria-label="{{ g.lien_libelle }} — {{ g.libelle }}">{{ g.lien_libelle }}{{ icone('fleche') }}</a>
+  {% elif g.lien %}
+  <a class="btn btn-ghost btn-sm clo-traiter" href="{{ g.lien }}" aria-label="{{ g.lien_libelle }} — {{ g.libelle }}">{{ g.lien_libelle }}{{ icone('fleche') }}</a>
+  {% endif %}
+  {% if nb %}
+  <details class="clo-detail">
+    <summary>{% if nb == 1 %}Voir l'élément{% else %}Voir les {{ nb }} éléments{% endif %}</summary>
+    <ul class="clo-elements">
+      {% for i in g['items'][:30] %}
+      <li class="clo-element">
+        <div>
+          <span class="clo-element__libelle">{{ i.libelle }}</span>
+          {% set precisions = [i.date, i.detail]|select|join(' · ') %}
+          {% if precisions %}<span class="clo-element__detail">{{ precisions }}</span>{% endif %}
+        </div>
+        <span class="clo-element__montant">{% if i.montant is not none %}{{ i.montant|euros }}{% endif %}</span>
+        {% if i.lien %}<a class="clo-lien" href="{{ i.lien }}">{{ i.lien_libelle or 'Ouvrir' }}</a>{% else %}<span></span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% if nb > 30 %}<p class="clo-reste">et {{ nb - 30 }} autre{{ 's' if nb - 30 > 1 }} — la page du module les liste toutes.</p>{% endif %}
+  </details>
+  {% endif %}
+</li>
+{% endmacro %}
+
+{# Un module : son état, ses bloqueurs, et soit l'action possible, soit la trace de sa clôture. #}
+{% macro carte(m, t, opaque) %}
+{% set cle = m.cle|lower %}
+<li class="clo-module" id="module-{{ cle }}" data-module="{{ m.cle }}" data-etat="{{ m.etat }}" data-testid="module-carte" aria-labelledby="titre-module-{{ cle }}">
+  <div class="clo-module__tete">
+    <h3 class="clo-module__nom" id="titre-module-{{ cle }}">{{ m.libelle }}</h3>
+    {{ pastille(m) }}
+  </div>
+  <p class="clo-module__resume">{{ m.resume }}</p>
+
+  {% if m.etat == 'A_REVOIR' %}
+  <p class="clo-alerte" role="status" data-testid="module-a-rouvrir">{{ m.motif_indisponible }}</p>
+  {% endif %}
+
+  {% if m.etat in ('PRET', 'A_TRAITER') and m.date_reouverture_fr %}
+  <p class="clo-trace clo-trace--rouvert" data-testid="module-rouvert">{{ icone('revoir') }}
+    <span>Rouvert le {{ m.date_reouverture_fr }}{% if m.acteur_reouverture %}, par {{ m.acteur_reouverture }}{% endif %}.
+      « {{ m.justification_reouverture }} »</span></p>
+  {% endif %}
+
+  {% if m.bloqueurs %}
+  <ul class="clo-bloqueurs" aria-label="Points à traiter — {{ m.libelle }}">
+    {% for g in m.bloqueurs %}{{ groupe(g) }}{% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if m.informatifs %}
+  <details class="clo-infos" data-testid="module-informations">
+    <summary>{{ m.nb_informatifs }} information{{ 's' if m.nb_informatifs > 1 }} — ne bloque{{ 'nt' if m.nb_informatifs > 1 }} pas la clôture</summary>
+    <ul class="clo-bloqueurs">
+      {% for g in m.informatifs %}{{ groupe(g, true) }}{% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+
+  <div class="clo-module__pied">
+    {% if m.etat == 'CLOS' or (m.etat == 'A_REVOIR' and m.date_cloture_fr) %}
+    <p class="clo-trace" data-testid="module-trace">{{ icone('cadenas') }}
+      <span>{% if m.date_cloture_fr %}Clôturé le {{ m.date_cloture_fr }}{% if m.acteur_cloture %}, par {{ m.acteur_cloture }}{% endif %}.
+        {%- if m.commentaire_cloture %} « {{ m.commentaire_cloture }} »{% endif %}
+        {%- if m.nb_reouvertures %} Rouvert {{ m.nb_reouvertures }} fois depuis la première clôture.{% endif %}
+        {%- else %}Clôturé avec le mois.{% endif %}</span></p>
+    {% elif m.motif_indisponible %}
+    <p class="clo-motif" id="motif-{{ cle }}" data-testid="module-motif">{{ icone('info') }}<span>{{ m.motif_indisponible }}</span></p>
+    {% else %}
+    <p class="clo-motif" data-testid="module-motif">{{ icone('clos') }}<span>Aucun point bloquant : ce module peut être clôturé.</span></p>
+    {% endif %}
+
+    <div class="clo-actions">
+      <a class="btn btn-ghost btn-sm" href="{{ m.consulter }}" aria-label="Consulter — {{ m.libelle }}" data-testid="consulter-module">Consulter</a>
+      {% if opaque %}
+        {% if m.peut_cloturer %}
+        <a class="btn btn-primary btn-sm" href="/clotures/{{ opaque }}/modules/{{ m.cle }}/cloturer" aria-label="Clôturer ce module — {{ m.libelle }}" data-testid="cloturer-module">Clôturer ce module</a>
+        {% elif m.peut_rouvrir %}
+        <a class="btn btn-secondary btn-sm" href="/clotures/{{ opaque }}/modules/{{ m.cle }}/rouvrir" aria-label="Rouvrir ce module — {{ m.libelle }}" data-testid="rouvrir-module">Rouvrir ce module</a>
+        {% elif m.etat != 'CLOS' %}
+        <button type="button" class="btn btn-primary btn-sm" aria-disabled="true"{% if m.motif_indisponible %} aria-describedby="motif-{{ cle }}"{% endif %} data-testid="cloturer-module-indisponible">Clôturer ce module</button>
+        {% endif %}
+      {% elif m.etat != 'CLOS' %}
+        <button type="button" class="btn btn-primary btn-sm" aria-disabled="true" aria-describedby="motif-{{ cle }}" data-testid="cloturer-module-indisponible">Clôturer ce module</button>
+      {% endif %}
+    </div>
+  </div>
+</li>
+{% endmacro %}
+
+{# Bandeau de synthèse : le mois, où en est sa clôture, N / 7 modules, et l'action principale. #}
+{% macro synthese(t, opaque, peut_rouvrir_le_mois=false) %}
+<section class="clo-synthese" aria-labelledby="clo-mois-titre" data-testid="synthese-cloture" data-etat="{{ t.etat_cloture }}">
+  <div class="clo-synthese__haut">
+    <p class="clo-mois" id="clo-mois-titre">{{ t.mois_fr }}</p>
+    {{ pastille_cloture(t) }}
+    {% if t.ouverte_le_fr %}<span class="clo-ouverte" data-testid="cloture-ouverte-le">Ouverte le {{ t.ouverte_le_fr }}</span>{% endif %}
+  </div>
+
+  <div class="clo-synthese__corps">
+    <div class="clo-avancement">
+      <p class="clo-score" data-testid="progression-libelle"><span class="clo-score__nombre">{{ t.nb_clos }} / {{ t.nb_total }}</span> <span class="clo-score__texte">modules clôturés</span></p>
+      {{ barre(t) }}
+      <ul class="clo-legende" aria-label="Répartition des modules">
+        <li><span class="clo-etat clo-etat--clos">{{ icone('clos') }}{{ t.nb_clos }} clôturé{{ 's' if t.nb_clos > 1 }}</span></li>
+        {% if t.nb_prets %}<li><span class="clo-etat clo-etat--pret">{{ icone('pret') }}{{ t.nb_prets }} prêt{{ 's' if t.nb_prets > 1 }} à clôturer</span></li>{% endif %}
+        {% if t.nb_bloqueurs %}<li><span class="clo-etat clo-etat--traiter" data-testid="nb-bloqueurs-mois">{{ icone('traiter') }}{{ t.nb_bloqueurs }} bloqueur{{ 's' if t.nb_bloqueurs > 1 }} à traiter</span></li>{% endif %}
+      </ul>
+    </div>
+
+    <div class="clo-synthese__action">
+      {% if t.mois_clos %}
+      <p class="clo-motif" data-testid="mois-clos">{{ icone('cadenas') }}<span>Clôturé définitivement{% if t.date_cloture_mois_fr %} le {{ t.date_cloture_mois_fr }}{% endif %}{% if t.acteur_cloture_mois %}, par {{ t.acteur_cloture_mois }}{% endif %}.</span></p>
+      {% elif not t.demarree %}
+        {% if t.temporalite == 'FUTUR' %}
+        <p class="clo-motif" data-testid="demarrage-indisponible">{{ icone('info') }}<span>Un mois futur ne se prépare pas encore.</span></p>
+        {% else %}
+        <form method="post" action="/clotures/demarrer">
+          <input type="hidden" name="mois" value="{{ t.mois }}">
+          <button type="submit" class="btn btn-primary" data-testid="demarrer-cloture">Démarrer la clôture</button>
+        </form>
+        <p class="clo-motif">{{ icone('info') }}<span>Démarrer ouvre simplement la clôture de ce mois : rien n'est clôturé ni verrouillé.</span></p>
+        {% endif %}
+        {% if t.refus_temporel %}
+        <p class="clo-motif" data-testid="regle-du-calendrier">{{ icone('info') }}<span>{{ t.refus_temporel }}{% if t.temporalite == 'COURANT' %} Il se prépare et se contrôle dès maintenant ; la clôture ne sera possible qu'une fois le mois terminé.{% endif %}</span></p>
+        {% endif %}
+      {% elif t.peut_cloturer_mois %}
+      <a class="btn btn-primary" href="/clotures/{{ opaque }}/cloture-definitive" data-testid="bouton-cloture-definitive">Clôturer le mois</a>
+      <p class="clo-motif">{{ icone('clos') }}<span>Tous les modules sont clôturés : le mois peut l'être.</span></p>
+      {% else %}
+      <button type="button" class="btn btn-primary" aria-disabled="true" aria-describedby="clo-motif-mois" data-testid="bouton-cloture-mois-indisponible">Clôturer le mois</button>
+      <p class="clo-motif" id="clo-motif-mois" data-testid="cloture-definitive-indisponible">{{ icone('info') }}<span>{{ t.motif_mois }}</span></p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if opaque %}
+  <ul class="clo-liens" aria-label="Autres vues de ce mois">
+    <li><a href="/pilotage-mensuel?mois={{ t.mois }}">Synthèse du mois</a></li>
+    <li><a href="/controles-cloture/mois/{{ t.mois }}">Contrôles détaillés</a></li>
+    <li><a href="/clotures/{{ opaque }}/historique" data-testid="lien-historique">Historique de la clôture</a></li>
+    <li><a href="/clotures/{{ opaque }}/export.csv">Exporter le dossier (CSV)</a></li>
+    {% if peut_rouvrir_le_mois %}<li><a href="/clotures/{{ opaque }}/reouvrir">Rouvrir la clôture validée</a></li>{% endif %}
+  </ul>
+  {% endif %}
+</section>
+{% endmacro %}
+
+{# Le tableau complet : synthèse puis un bloc par module. #}
+{% macro tableau_complet(t, opaque, peut_rouvrir_le_mois=false) %}
+<div class="clo">
+  {{ synthese(t, opaque, peut_rouvrir_le_mois) }}
+
+  <div class="clo-titre-section">
+    <h2>Modules de la clôture</h2>
+    <p>Un module se clôture quand plus aucun point bloquant n'y subsiste. Une fois clôturé, il est verrouillé pour ce mois mais reste consultable. Le mois se clôture quand tous ses modules le sont.</p>
+  </div>
+
+  <ol class="clo-modules" aria-label="Modules de la clôture de {{ t.mois_fr }}" data-testid="modules-cloture">
+    {% for m in t.modules %}{{ carte(m, t, opaque) }}{% endfor %}
+  </ol>
+</div>
+{% endmacro %}

@@ -201,7 +201,10 @@ def mois_cloture(mois: str, *, db_path=None) -> str:
                 return f"La période comptable {mois} est clôturée."
     finally:
         conn.close()
-    return ""
+    # Troisième fermeture : le module « Banque et caisse » clôturé pour ce mois — plus de
+    # rapprochement, de lettrage ni d'opération de caisse (cloture_verrous_service).
+    from app.services import cloture_verrous_service as verrous
+    return verrous.refus(mois, "BANQUE", db_path=db_path)
 
 
 # ══ Noms humains ══════════════════════════════════════════════════════════════════════════════

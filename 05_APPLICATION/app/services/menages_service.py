@@ -680,6 +680,20 @@ def a_controler(vue: dict[str, Any]) -> bool:
     return vue["statut_effectif"] in STATUTS_A_CONTROLER or vue["identification_incomplete"]
 
 
+def lignes_a_controler(mois: str, *, db_path=None) -> list[dict[str, Any]]:
+    """Les lignes que le module Ménages DIT « à contrôler » pour ce mois : même critère (`a_controler`)
+    que la carte « À CONTRÔLER » et que l'écran « À contrôler » — une ligne justifiée (outrepassée) ou
+    validée n'y figure pas. C'est ce que la clôture du mois lit : le module est seul juge de ses écarts.
+
+    Lecture seule. `db_path` désigne la base lue (les écrans, eux, lisent `cfg.DB_PATH`)."""
+    source = reader.rapprochement(db_path)
+    if not source.etat.disponible:
+        return []
+    overrides = _load_all_overrides(db_path)
+    vues = (_vue_ligne(r, overrides, {}, {}) for r in source.lignes if _cle(r)[0] == mois)
+    return sorted((v for v in vues if a_controler(v)), key=lambda v: _tri_cle(v, "anomalie"))
+
+
 def indicateurs_perimetre(mois: str, *, db_path=None) -> dict[str, Any]:
     """ATTENDUS · RÉALISÉS / JUSTIFIÉS · À CONTRÔLER — trois nombres d'une même unité (le ménage),
     sur un même périmètre (le mois, tous logements).
@@ -1240,10 +1254,10 @@ def _cle_override(mois: str, logement_id: str, intervenant_id: str) -> str:
     return f"{mois}|{logement_id}|{intervenant_id}"
 
 
-def _load_all_overrides() -> dict[str, dict]:
+def _load_all_overrides(db_path=None) -> dict[str, dict]:
     # cfg.DB_PATH est lu À CHAUD : le défaut de get_db() est figé à l'import et
     # pointerait sur la base réelle même quand un test isole cfg.DB_PATH.
-    conn = get_db(cfg.DB_PATH)
+    conn = get_db(db_path if db_path is not None else cfg.DB_PATH)
     try:
         rows = conn.execute(
             "SELECT mois, logement_id, intervenant_id, motif, statut_override, ts "

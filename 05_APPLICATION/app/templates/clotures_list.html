@@ -1,17 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Clôtures mensuelles{% endblock %}
 
+{% from "_cloture_tableau.html" import icone, barre %}
 {% block content %}
-{# Finitions PR #4 (cartes, filtres étiquetés, tableau, état vide) reprises sur l'écran ACTUEL :
-   contrôle d'un mois, état du mois, lien vers la fiche mois, validation puis clôture définitive
-   (VALIDEE → ARCHIVEE) sont conservés tels quels. #}
+{# Finitions PR #4 (cartes, filtres étiquetés, tableau, état vide) reprises sur l'écran ACTUEL ;
+   la colonne « Modules clôturés » donne l'avancement de chaque mois sans ouvrir sa fiche. #}
 <link rel="stylesheet" href="/static/css/ecrans.css">
 <link rel="stylesheet" href="/static/css/finitions.css">
+<link rel="stylesheet" href="/static/css/cloture.css">
 <div class="ecran">
 <div class="page-header">
   <div class="page-header__titre">
     <h1 class="page-title">Clôtures mensuelles</h1>
-    <p class="page-subtitle">Préparation, validation humaine, puis clôture définitive de chaque mois</p>
+    <p class="page-subtitle">Chaque mois se clôture module par module, puis en entier</p>
   </div>
   <div class="page-header__actions">
     <a href="/pilotage-mensuel" class="btn btn-secondary">Pilotage mensuel</a>
@@ -21,17 +22,18 @@
 {% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
 
 <div class="alert alert-info fi-alerte-compacte">
-  « Validée » : la préparation est contrôlée et validée, le mois n'est pas gelé. « Clôturée
-  définitivement » : l'archive du mois est figée et le mois fermé (CLOTURE), depuis la fiche d'une
-  clôture validée, pour un mois terminé et sans bloqueur.
+  Un mois se clôture module par module : réservations, ménages, charges, banque, factures clients,
+  créances et comptabilité. Il est clôturé quand tous ses modules le sont, qu'il est terminé et qu'aucun
+  point bloquant ne subsiste. Le mois en cours et les mois futurs ne se clôturent pas.
 </div>
 
 {# Synthèse des mois affichés : simple décompte des lignes servies, rien n'est recalculé. #}
-{% set synth = namespace(bloques=0, validees=0, a_traiter=0) %}
+{% set synth = namespace(bloques=0, clos=0, modules_clos=0, modules_total=0) %}
 {% for l in lignes %}
   {% if l.progression.nb_bloqueurs > 0 %}{% set synth.bloques = synth.bloques + 1 %}{% endif %}
-  {% if l.statut in ("VALIDEE", "ARCHIVEE") %}{% set synth.validees = synth.validees + 1 %}{% endif %}
-  {% set synth.a_traiter = synth.a_traiter + (l.progression.nb_a_traiter or 0) %}
+  {% if l.statut == "ARCHIVEE" %}{% set synth.clos = synth.clos + 1 %}{% endif %}
+  {% set synth.modules_clos = synth.modules_clos + l.tableau.nb_clos %}
+  {% set synth.modules_total = synth.modules_total + l.tableau.nb_total %}
 {% endfor %}
 <div class="fi-kpis">
   <div class="fi-kpi"><span class="fi-kpi__label">Mois affichés</span>
@@ -39,17 +41,17 @@
   <div class="fi-kpi{% if synth.bloques %} fi-kpi--erreur{% endif %}"><span class="fi-kpi__label">Mois avec bloqueurs</span>
     <span class="fi-kpi__valeur">{{ synth.bloques }}</span>
     <span class="fi-kpi__sous">empêchent la clôture</span></div>
-  <div class="fi-kpi{% if synth.a_traiter %} fi-kpi--alerte{% endif %}"><span class="fi-kpi__label">Contrôles à traiter</span>
-    <span class="fi-kpi__valeur">{{ synth.a_traiter }}</span></div>
-  <div class="fi-kpi{% if synth.validees %} fi-kpi--ok{% endif %}"><span class="fi-kpi__label">Mois validés ou clôturés</span>
-    <span class="fi-kpi__valeur">{{ synth.validees }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Modules clôturés</span>
+    <span class="fi-kpi__valeur">{{ synth.modules_clos }} / {{ synth.modules_total }}</span></div>
+  <div class="fi-kpi{% if synth.clos %} fi-kpi--ok{% endif %}"><span class="fi-kpi__label">Mois clôturés</span>
+    <span class="fi-kpi__valeur">{{ synth.clos }}</span></div>
 </div>
 
 <form method="get" action="/clotures/mois" class="ec-filtres" data-testid="choix-periode">
   {% set v1 = perimetre_v1() %}
-  <label class="ec-champ"><span>Contrôler un mois</span><input type="month" name="mois"{% if v1 %} min="{{ v1.mois }}"{% endif %} data-testid="cloture-choix-mois"></label>
+  <label class="ec-champ"><span>Ouvrir un mois</span><input type="month" name="mois"{% if v1 %} min="{{ v1.mois }}"{% endif %} data-testid="cloture-choix-mois"></label>
   <div class="ec-filtres__actions">
-    <button type="submit" class="btn btn-secondary">Afficher son état</button>
+    <button type="submit" class="btn btn-secondary">Afficher</button>
   </div>
 </form>
 
@@ -68,22 +70,19 @@
 
 {% if lignes %}
 <div class="ec-table-wrap">
-    <table class="data-table">
-      <thead><tr><th>Mois</th><th>Statut</th><th>État du mois</th><th class="num">Bloqueurs</th><th class="num">À traiter</th><th class="num">Résolus</th>
-        <th class="num">Exceptions</th><th class="num">Informatifs</th><th>Dernière action</th><th class="fi-col-actions"><span class="sr-only">Actions</span></th></tr></thead>
-      <tbody>
+    {# Les rôles ARIA explicites gardent la sémantique de tableau quand, sous 600 px, chaque ligne devient une carte. #}
+    <table class="data-table clo-table" role="table" aria-label="Mois à clôturer">
+      <thead role="rowgroup"><tr role="row"><th role="columnheader">Mois</th><th role="columnheader">Clôture</th><th role="columnheader">Modules clôturés</th><th role="columnheader" class="num">Points bloquants</th>
+        <th role="columnheader">Dernière action</th><th role="columnheader" class="fi-col-actions"><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody role="rowgroup">
         {% for l in lignes %}
-        <tr>
-          <td class="fi-cle ec-nowrap"><a href="/clotures/mois/{{ l.mois }}">{{ l.progression.mois_fr }}</a></td>
-          <td><span class="status-badge status-{{ 'valide' if l.statut == 'VALIDEE' else ('cloture' if l.statut == 'ARCHIVEE' else ('bloquant' if l.progression.nb_bloqueurs > 0 else ('brouillon' if l.statut == 'NON_DEMARREE' else 'info'))) }}">{{ l.statut_libelle }}</span></td>
-          <td class="text-xs {{ 'fi-montant--negatif' if l.progression.etat == 'BLOQUE' else 'fi-discret' }}" data-testid="etat-liste">{{ l.progression.etat_libelle }}</td>
-          <td class="num">{% if l.progression.nb_bloqueurs %}<span class="fi-nb fi-nb--alerte">{{ l.progression.nb_bloqueurs }}</span>{% else %}<span class="fi-nb fi-nb--zero">0</span>{% endif %}</td>
-          <td class="num {{ 'fi-zero' if not l.progression.nb_a_traiter }}">{{ l.progression.nb_a_traiter }}</td>
-          <td class="num {{ 'fi-zero' if not l.progression.nb_resolus }}">{{ l.progression.nb_resolus }}</td>
-          <td class="num {{ 'fi-zero' if not l.progression.nb_exceptions }}">{{ l.progression.nb_exceptions }}</td>
-          <td class="num {{ 'fi-zero' if not l.progression.nb_informatifs }}">{{ l.progression.nb_informatifs }}</td>
-          <td class="text-xs fi-discret">{{ l.derniere_action or "—" }}</td>
-          <td class="fi-col-actions">
+        <tr role="row">
+          <td role="cell" data-label="Mois" class="fi-cle ec-nowrap"><a href="/clotures/mois/{{ l.mois }}">{{ l.progression.mois_fr }}</a></td>
+          <td role="cell" data-label="Clôture"><span class="clo-etat clo-etat--{{ {'NON_DEMARREE': 'neutre', 'EN_COURS': 'pret', 'VALIDEE': 'pret', 'CLOTURE': 'clos'}[l.tableau.etat_cloture] }}">{{ icone({'NON_DEMARREE': 'info', 'EN_COURS': 'pret', 'VALIDEE': 'pret', 'CLOTURE': 'cadenas'}[l.tableau.etat_cloture]) }}{{ l.tableau.etat_cloture_libelle }}</span></td>
+          <td role="cell" data-label="Modules clôturés" data-testid="etat-liste"><div class="clo-mini">{{ barre(l.tableau) }}<span class="clo-mini__texte">{{ l.tableau.nb_clos }} / {{ l.tableau.nb_total }}</span></div></td>
+          <td role="cell" data-label="Points bloquants" class="num">{% if l.progression.nb_bloqueurs %}<span class="fi-nb fi-nb--alerte">{{ l.progression.nb_bloqueurs }}</span>{% else %}<span class="fi-nb fi-nb--zero">0</span>{% endif %}</td>
+          <td role="cell" data-label="Dernière action" class="text-xs fi-discret">{{ l.derniere_action|datetime_fr if l.derniere_action else "—" }}</td>
+          <td role="cell" class="fi-col-actions">
             {% if l.cloture_id_opaque %}
               <a class="fi-lien-action" href="/clotures/{{ l.cloture_id_opaque }}">Ouvrir</a>
             {% else %}

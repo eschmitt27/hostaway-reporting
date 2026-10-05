@@ -142,13 +142,20 @@ def _transition(charge_id: str, nouveau: str, *, acteur: str = "", commentaire: 
     conn = get_db(db_path)
     try:
         row = conn.execute(
-            "SELECT statut, statut_controle FROM charges WHERE charge_id = ?", (charge_id,)
-        ).fetchone()
+            "SELECT statut, statut_controle, mois, date_charge FROM charges WHERE charge_id = ?",
+            (charge_id,)).fetchone()
         if row is None or row["statut"] != "ACTIVE":
             return _refus(E_INTROUVABLE, charge_id)
         ancien = str(row["statut_controle"] or "").strip()
         if ancien in (ST_VALIDE, ST_REJETE):
             return _refus(E_DEJA, f"statut actuel {ancien}")
+        # Module « Charges et factures fournisseurs » clôturé pour le mois : plus de décision de
+        # contrôle sur ses charges (cloture_verrous_service).
+        from app.services import cloture_verrous_service as verrous
+        mois = str(row["mois"] or "").strip() or str(row["date_charge"] or "").strip()[:7]
+        texte = verrous.refus(mois, "CHARGES", db_path=db_path)
+        if texte:
+            return {"ok": False, "code": "E_CHARGE_MOIS_CLOTURE", "message": texte, "details": mois}
         conn.execute(
             "UPDATE charges SET statut_controle = ?, date_modification = ? WHERE charge_id = ?",
             (nouveau, _now(), charge_id))

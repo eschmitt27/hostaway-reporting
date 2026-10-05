@@ -1,33 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Contrôle du mois{% endblock %}
+{% from "_cloture_tableau.html" import tableau_complet %}
+{% block title %}Clôture de {{ tableau.mois_fr }}{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/static/css/cloture.css">
 
 <div class="page-header">
   <a href="/clotures" class="back-link">← Clôtures mensuelles</a>
-  <h1 class="page-title">Contrôle du mois — {{ progression.mois_fr }}</h1>
-  <p class="page-subtitle">Lecture seule : cette page recalcule l'état du mois à chaque affichage et n'enregistre rien.</p>
+  <h1 class="page-title">Clôture de {{ tableau.mois_fr }}</h1>
+  <p class="page-subtitle">Cette page recalcule l'état du mois à chaque affichage. Tant que vous n'avez pas démarré la clôture, elle n'enregistre rien.</p>
 </div>
 
 <form method="get" action="/clotures/mois" class="filter-bar mb-md" data-testid="choix-periode">
-  <label>Période <input type="month" name="mois" value="{{ progression.mois }}"></label>
+  <label>Période <input type="month" name="mois" value="{{ tableau.mois }}"></label>
   <button type="submit" class="btn btn-secondary">Afficher</button>
 </form>
 
-{% include "_cloture_bilan_mois.html" %}
-
-<div class="card">
-  <h2 class="card-title">Clôture de ce mois</h2>
-  {% if cloture %}
-  <p>Clôture <strong>{{ cloture_statut_libelle }}</strong>.</p>
-  <a class="btn btn-primary" href="/clotures/{{ cloture.cloture_id_opaque }}">Ouvrir la clôture</a>
-  {% elif progression.temporalite == 'FUTUR' %}
-  <p class="section-note">Un mois futur ne se prépare pas encore.</p>
-  {% else %}
-  <p class="section-note">Aucune clôture démarrée. La démarrer ouvre sa préparation ; elle ne clôture rien.</p>
-  <form method="post" action="/clotures/demarrer">
-    <input type="hidden" name="mois" value="{{ progression.mois }}">
-    <button type="submit" class="btn btn-secondary">Démarrer la préparation</button>
-  </form>
-  {% endif %}
-</div>
+{{ tableau_complet(tableau, cloture.cloture_id_opaque if cloture else none, cloture is not none and cloture.statut == 'VALIDEE') }}
 {% endblock %}

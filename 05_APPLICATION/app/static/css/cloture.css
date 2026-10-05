@@ -1,0 +1,294 @@
+/* ════════════════════════════════════════════════════════════════════════════════════════════
+   Clôture par modules — tableau de bord d'un mois (2026-10).
+   STRICTEMENT VISUEL. Réutilise les jetons --ui-* de ui.css (chargée après celle-ci : aucun
+   sélecteur ci-dessous ne redéfinit un composant partagé, tout est préfixé « clo- »).
+
+   Règles d'accessibilité tenues ici :
+   · l'état d'un module n'est JAMAIS porté par la seule couleur : une icône de forme différente et un
+     texte l'accompagnent (clôturé ✓, prêt ◉, à traiter ▲, à rouvrir ↻) ; la barre de progression
+     est hachurée pour « à traiter » et pleine pour « clôturé » ;
+   · contrastes : textes sur fonds teintés repris des paires de ui.css (≥ 4,5:1) ;
+   · focus clavier : hérité de ui.css (halo visible sur a, button, summary, champs) ;
+   · cibles tactiles ≥ 44 px sous 600 px ; aucune largeur fixe, 375 px sans défilement horizontal.
+   ════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* Focus clavier renforcé sur les écrans de clôture : le halo commun (teinte à 22 %) ne contraste pas assez avec le
+   fond (< 3:1) ; un contour plein, décalé de 2 px, est franc sur toutes les surfaces. Les champs de saisie gardent
+   leur bordure d'accent + halo (ui.css). */
+.page-content:has(.clo, .clo-confirm, .clo-journal) :is(a, button, summary, input[type="checkbox"]):focus-visible {
+  outline: 3px solid var(--ui-primary); outline-offset: 2px; box-shadow: none; border-radius: var(--ui-radius-sm);
+}
+
+/* Sous-titre et lien de retour : le gris commun (4,47:1 sur le fond de page) passe juste sous le seuil AA. */
+.page-content:has(.clo, .clo-confirm, .clo-journal) .page-subtitle,
+.page-content:has(.clo, .clo-confirm, .clo-journal) .back-link { color: var(--ui-text-2); }
+.page-content:has(.clo, .clo-confirm, .clo-journal) .back-link:hover { color: var(--ui-primary); }
+
+.clo { display: grid; gap: var(--ui-4); min-width: 0; }
+.clo > * { min-width: 0; }
+.clo-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap;
+}
+.clo-icone { width: 14px; height: 14px; flex: none; }
+.clo-icone--lg { width: 18px; height: 18px; }
+
+/* ── Synthèse du mois ──────────────────────────────────────────────────────────────────────── */
+.clo-synthese {
+  display: grid; gap: var(--ui-4);
+  padding: var(--ui-5);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  box-shadow: var(--ui-shadow-1);
+}
+.clo-synthese__haut { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-2) var(--ui-3); }
+.clo-mois {
+  margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--ui-text-3);
+}
+.clo-ouverte { font-size: 13px; color: var(--ui-text-3); }
+.clo-synthese__corps {
+  display: grid; gap: var(--ui-4) var(--ui-5);
+  grid-template-columns: minmax(0, 1fr) auto; align-items: end;
+}
+.clo-avancement { display: grid; gap: var(--ui-3); min-width: 0; }
+.clo-score { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.clo-score__nombre {
+  font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; color: var(--ui-text);
+}
+.clo-score__texte { font-size: 15px; font-weight: 600; color: var(--ui-text-2); }
+
+.clo-barre {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px;
+  height: 10px; max-width: 34rem;
+}
+.clo-barre > span { border-radius: 999px; background: var(--ui-border); }
+.clo-barre > span[data-etat="CLOS"] { background: var(--ui-success); }
+.clo-barre > span[data-etat="PRET"] { background: var(--ui-info-bg); box-shadow: inset 0 0 0 2px var(--ui-info); }
+.clo-barre > span[data-etat="A_TRAITER"] {
+  background: repeating-linear-gradient(135deg, #d08a12 0 3px, #f3dca8 3px 6px);
+}
+.clo-barre > span[data-etat="A_REVOIR"] {
+  background: repeating-linear-gradient(135deg, var(--ui-danger) 0 3px, #f4c7c2 3px 6px);
+}
+.clo-legende { display: flex; flex-wrap: wrap; gap: var(--ui-2); margin: 0; padding: 0; list-style: none; }
+
+.clo-synthese__action { display: grid; gap: var(--ui-2); justify-items: end; align-content: end; max-width: 22rem; }
+.clo-synthese__action .btn { min-width: 13rem; }
+.clo-motif {
+  margin: 0; display: flex; align-items: flex-start; gap: 6px;
+  font-size: 13px; line-height: 1.45; color: var(--ui-text-2);
+}
+.clo-synthese__action .clo-motif { text-align: right; justify-content: flex-end; }
+.clo-liens {
+  display: flex; flex-wrap: wrap; gap: var(--ui-1) var(--ui-4); margin: 0; padding: var(--ui-3) 0 0;
+  border-top: 1px solid var(--ui-border); list-style: none; font-size: 13.5px;
+}
+.clo-liens a {
+  display: inline-flex; align-items: center; min-height: 28px;
+  color: var(--ui-primary); font-weight: 600; text-decoration: none;
+}
+.clo-liens a:hover { text-decoration: underline; }
+
+/* ── Pastille d'état : icône + texte (jamais la couleur seule) ─────────────────────────────── */
+.clo-etat {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 26px; padding: 0 10px;
+  border: 1px solid transparent; border-radius: 999px;
+  font-size: 12.5px; font-weight: 650; line-height: 1; white-space: nowrap;
+}
+.clo-etat--clos { background: var(--ui-success-bg); color: var(--ui-success); border-color: #c6e7d1; }
+.clo-etat--pret { background: var(--ui-info-bg); color: var(--ui-info); border-color: #c9d8f6; }
+.clo-etat--traiter { background: var(--ui-warning-bg); color: var(--ui-warning); border-color: #f3dca8; }
+.clo-etat--revoir { background: var(--ui-danger-bg); color: var(--ui-danger); border-color: #f4c7c2; }
+.clo-etat--neutre { background: var(--ui-surface-2); color: var(--ui-text-2); border-color: var(--ui-border); }
+
+/* ── Modules ───────────────────────────────────────────────────────────────────────────────── */
+.clo-titre-section { display: grid; gap: 2px; margin: var(--ui-2) 0 0; }
+.clo-titre-section h2 { margin: 0; font-size: 18px; font-weight: 650; }
+.clo-titre-section p { margin: 0; color: var(--ui-text-2); font-size: 13.5px; max-width: 70ch; }
+
+.clo-modules { display: grid; gap: var(--ui-3); margin: 0; padding: 0; list-style: none; }
+.clo-module {
+  --clo-accent: var(--ui-border-strong);
+  display: grid; gap: var(--ui-3);
+  padding: var(--ui-4) var(--ui-5);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-left: 4px solid var(--clo-accent);
+  border-radius: var(--ui-radius);
+  box-shadow: var(--ui-shadow-1);
+  scroll-margin-top: 72px;
+}
+.clo-module[data-etat="CLOS"] { --clo-accent: var(--ui-success); }
+.clo-module[data-etat="PRET"] { --clo-accent: var(--ui-info); }
+.clo-module[data-etat="A_TRAITER"] { --clo-accent: #d08a12; }
+.clo-module[data-etat="A_REVOIR"] { --clo-accent: var(--ui-danger); }
+.clo-module:target { box-shadow: var(--ui-focus), var(--ui-shadow-1); }
+.clo-module__tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ui-2) var(--ui-3); }
+.clo-module__nom { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.005em; }
+.clo-module__resume { margin: 0; font-size: 13.5px; color: var(--ui-text-3); }
+.clo-alerte {
+  margin: 0; padding: 8px 12px; font-size: 13.5px; line-height: 1.45;
+  background: var(--ui-danger-bg); color: var(--ui-danger);
+  border: 1px solid #f4c7c2; border-radius: var(--ui-radius-sm);
+}
+
+/* ── Bloqueurs : ce qui reste à traiter, avec son lien vers la vraie page ─────────────────── */
+.clo-bloqueurs { display: grid; gap: var(--ui-2); margin: 0; padding: 0; list-style: none; }
+.clo-bloqueur {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--ui-1) var(--ui-3); align-items: start;
+  padding: var(--ui-3);
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+}
+.clo-bloqueur__titre { margin: 0; font-size: 14px; font-weight: 650; color: var(--ui-text); }
+.clo-bloqueur__pourquoi { margin: 2px 0 0; font-size: 13px; line-height: 1.45; color: var(--ui-text-2); }
+.clo-bloqueur > details { grid-column: 1 / -1; }
+.clo-traiter { gap: 6px; }
+
+.clo-detail > summary, .clo-infos > summary {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 2px; font-size: 13px; font-weight: 600; color: var(--ui-primary);
+  cursor: pointer; list-style: none;
+}
+.clo-detail > summary::-webkit-details-marker, .clo-infos > summary::-webkit-details-marker { display: none; }
+.clo-detail > summary::before, .clo-infos > summary::before {
+  content: ""; width: 7px; height: 7px; flex: none;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg); transition: transform var(--ui-fast) var(--ui-ease);
+}
+.clo-detail[open] > summary::before, .clo-infos[open] > summary::before { transform: rotate(45deg); }
+
+.clo-elements { display: grid; margin: var(--ui-1) 0 0; padding: 0; list-style: none; }
+.clo-element {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 2px var(--ui-3);
+  padding: 8px 0; border-top: 1px solid var(--ui-border); font-size: 13.5px;
+}
+.clo-element__libelle { font-weight: 600; overflow-wrap: anywhere; }
+.clo-element__detail { display: block; font-size: 12.5px; color: var(--ui-text-2); overflow-wrap: anywhere; }
+.clo-element__montant { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.clo-lien {
+  display: inline-flex; align-items: center; min-height: 28px;
+  color: var(--ui-primary); font-weight: 600; text-decoration: none; white-space: nowrap;
+}
+.clo-lien:hover { text-decoration: underline; }
+.clo-reste { margin: var(--ui-1) 0 0; font-size: 12.5px; color: var(--ui-text-2); }
+
+.clo-infos { padding: 0 2px; }
+.clo-infos .clo-bloqueur { background: transparent; }
+
+/* ── Pied d'un module : trace de clôture OU action possible ───────────────────────────────── */
+.clo-module__pied {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ui-2) var(--ui-3);
+  padding-top: var(--ui-3); border-top: 1px solid var(--ui-border);
+}
+.clo-trace { margin: 0; display: flex; align-items: flex-start; gap: 6px; font-size: 13px; line-height: 1.45; color: var(--ui-text-2); }
+.clo-trace svg { margin-top: 2px; color: var(--ui-success); }
+.clo-trace--rouvert svg { color: var(--ui-warning); }
+.clo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-2); margin-left: auto; }
+.clo-pied-motif { display: grid; gap: var(--ui-1); }
+
+/* ── Pages de confirmation (clôturer / rouvrir un module, clôturer le mois) ───────────────── */
+.clo-confirm { display: grid; gap: var(--ui-4); max-width: 46rem; }
+.clo-confirm .card { display: grid; gap: var(--ui-3); }
+.clo-confirm .card-title { margin: 0; }
+.clo-confirm__liste { display: grid; gap: var(--ui-2); margin: 0; padding: 0; list-style: none; }
+.clo-confirm__liste li { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; line-height: 1.5; }
+.clo-confirm__liste svg { margin-top: 3px; color: var(--ui-text-3); }
+.clo-champ { display: grid; gap: 6px; }
+.clo-champ > label { font-size: 13px; font-weight: 600; color: var(--ui-text-2); }
+.clo-champ textarea { min-height: 84px; width: 100%; resize: vertical; }
+.clo-case { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.45; }
+.clo-case input { margin-top: 2px; flex: none; }
+.clo-case label { cursor: pointer; }
+.clo-boutons { display: flex; flex-wrap: wrap; gap: var(--ui-2); }
+.clo-recap { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: var(--ui-3) var(--ui-5); margin: 0; }
+.clo-recap > div { display: grid; gap: 2px; }
+.clo-recap dt { font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ui-text-3); }
+.clo-recap dd { margin: 0; font-weight: 600; }
+
+/* ── Historique : un journal lisible, pas un export de table ──────────────────────────────── */
+.clo-journal { display: grid; margin: 0; padding: 0; list-style: none; }
+.clo-journal__ligne {
+  display: grid; grid-template-columns: 11.5rem minmax(0, 1fr); gap: 2px var(--ui-4);
+  padding: var(--ui-3) 0; border-top: 1px solid var(--ui-border); font-size: 14px;
+}
+.clo-journal__ligne:first-child { border-top: 0; }
+.clo-journal__quand { color: var(--ui-text-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+.clo-journal__quoi { font-weight: 650; }
+.clo-journal__detail { display: block; margin-top: 2px; font-size: 13px; font-weight: 400; color: var(--ui-text-2); overflow-wrap: anywhere; }
+
+/* ── Liste des mois ────────────────────────────────────────────────────────────────────────── */
+.clo-mini { display: flex; align-items: center; gap: 10px; min-width: 9rem; }
+.clo-mini__texte { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.clo-mini .clo-barre { height: 8px; width: 6.5rem; gap: 2px; flex: none; }
+
+/* ── Petits écrans ─────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .clo-synthese__corps { grid-template-columns: minmax(0, 1fr); }
+  .clo-synthese__action { justify-items: stretch; max-width: none; }
+  .clo-synthese__action .btn { width: 100%; }
+  .clo-synthese__action .clo-motif { text-align: left; justify-content: flex-start; }
+}
+@media (max-width: 600px) {
+  .clo-synthese { padding: var(--ui-4); }
+  .clo-module { padding: var(--ui-3) var(--ui-4); }
+  .clo-score__nombre { font-size: 28px; }
+  .clo-bloqueur { grid-template-columns: minmax(0, 1fr); }
+  .clo-bloqueur .clo-traiter { width: 100%; }
+  .clo-element { grid-template-columns: minmax(0, 1fr) auto; }
+  .clo-element .clo-lien { grid-column: 1 / -1; min-height: 44px; }
+  .clo-liens { gap: 0 var(--ui-4); }
+  .clo-liens a { min-height: 44px; }
+  .clo-module__pied { align-items: stretch; }
+  .clo-actions { width: 100%; margin-left: 0; }
+  .clo-actions .btn, .clo-boutons .btn { flex: 1 1 100%; }
+  .clo .btn, .clo-confirm .btn { min-height: 44px; }
+  .clo-detail > summary, .clo-infos > summary { min-height: 44px; }
+  .clo-journal__ligne { grid-template-columns: minmax(0, 1fr); }
+  .clo-mini .clo-barre { width: 4.5rem; }
+}
+/* Liste des mois sur téléphone : chaque ligne du tableau devient une carte (les rôles ARIA du gabarit gardent la
+   sémantique de tableau, les libellés de colonne reviennent devant chaque valeur). */
+@media (max-width: 600px) {
+  .clo-table, .clo-table tbody, .clo-table tr, .clo-table td { display: block; width: 100%; }
+  .clo-table thead {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+    overflow: hidden; clip: rect(0, 0, 0, 0);
+  }
+  .clo-table tbody tr { padding: var(--ui-3) var(--ui-4); border-bottom: 1px solid var(--ui-border); }
+  .clo-table td {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--ui-3);
+    padding: 6px 0; border: 0; text-align: right;
+  }
+  .clo-table td::before {
+    content: attr(data-label); flex: none; text-align: left;
+    font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ui-text-2);
+  }
+  .clo-table td.fi-cle { font-size: 16px; font-weight: 650; justify-content: flex-start; }
+  .clo-table td.fi-cle::before, .clo-table td.fi-col-actions::before { content: none; }
+  /* finitions.css donne 1 % de largeur à cette colonne (écran large) : en carte, elle occupe toute la ligne. */
+  .ecran .clo-table td.fi-col-actions { width: 100%; justify-content: flex-end; padding-top: var(--ui-2); }
+  .clo-table td.fi-col-actions .fi-lien-action { display: inline-flex; align-items: center; min-height: 44px; }
+  .clo-table td.fi-col-actions .btn { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .clo-detail > summary::before, .clo-infos > summary::before { transition: none; }
+}
+@media print {
+  .clo-actions, .clo-liens, .clo-traiter { display: none !important; }
+  .clo-module { break-inside: avoid; box-shadow: none; }
+}
+@media (forced-colors: active) {
+  /* Mode contraste élevé : les fonds sont neutralisés — la barre et les cartes gardent leurs contours. */
+  .clo-barre > span { forced-color-adjust: none; background: Canvas; border: 1px solid CanvasText; }
+  .clo-barre > span[data-etat="CLOS"] { background: Highlight; }
+  .clo-barre > span[data-etat="A_TRAITER"], .clo-barre > span[data-etat="A_REVOIR"] {
+    background: repeating-linear-gradient(135deg, CanvasText 0 3px, Canvas 3px 6px);
+  }
+  .clo-module, .clo-etat, .clo-bloqueur, .clo-synthese { border-color: CanvasText; }
+}

@@ -50,9 +50,23 @@ def _mois_cloture(mois: str, db_path=None) -> bool:
     try:
         row = conn.execute(
             "SELECT statut_mois FROM ref_cloture_mensuelle WHERE mois = ?", (mois,)).fetchone()
-        return bool(row and row["statut_mois"] == "CLOTURE")
+        if row and row["statut_mois"] == "CLOTURE":
+            return True
     finally:
         conn.close()
+    # Le module « Ménages » clôturé pour ce mois verrouille aussi les déclarations — c'est ce que
+    # « Ménages clôturés pour septembre » veut dire (cloture_verrous_service).
+    from app.services import cloture_verrous_service as verrous
+    return verrous.module_clos(mois, "MENAGES", db_path=db_path)
+
+
+def _message_mois_cloture(mois: str, db_path=None) -> str:
+    from app.services import cloture_verrous_service as verrous
+    if verrous.module_clos(mois, "MENAGES", db_path=db_path) and not verrous.mois_clos(
+            mois, db_path=db_path):
+        return verrous.message(mois, "MENAGES")
+    return ("Mois clôturé : utiliser la correction rétroactive existante, "
+            "pas une modification directe.")
 
 
 def _extra(conn, mois: str, logement_id: str, intervenant_id: str) -> dict[str, Any] | None:
@@ -154,6 +168,9 @@ def creer(*, mois: str, logement_id: str, intervenant_id: str, nb_menages: int,
 
     if not mois or len(mois) != 7 or mois[4] != "-":
         return {"ok": False, "code": E_MOIS_INVALIDE, "message": "Mois attendu au format AAAA-MM."}
+    if _mois_cloture(mois, db_path=db_path):
+        return {"ok": False, "code": E_MOIS_CLOTURE,
+                "message": _message_mois_cloture(mois, db_path=db_path)}
 
     conn = get_db(db_path)
     try:
@@ -232,8 +249,7 @@ def modifier(*, mois: str, logement_id: str, intervenant_id: str, nb_menages: in
 
     if _mois_cloture(mois, db_path=db_path):
         return {"ok": False, "code": E_MOIS_CLOTURE,
-                "message": "Mois clôturé : utiliser la correction rétroactive existante, "
-                           "pas une modification directe."}
+                "message": _message_mois_cloture(mois, db_path=db_path)}
 
     conn = get_db(db_path)
     try:
@@ -336,6 +352,9 @@ def resoudre_conflit(conflit_id: int, *, choix: str, acteur: str = "",
         if c is None:
             return {"ok": False, "message": "Conflit introuvable ou déjà résolu."}
         c = dict(c)
+        if _mois_cloture(c["mois"], db_path=db_path):
+            return {"ok": False, "code": E_MOIS_CLOTURE,
+                    "message": _message_mois_cloture(c["mois"], db_path=db_path)}
         statut_final = "RESOLU_GARDE_APPLICATION" if choix == "GARDER_APPLICATION" else "RESOLU_REPRIS_SHEET"
         if choix == "REPRENDRE_SHEET":
             nouveau_nb = int(c["valeur_sheet"])

@@ -183,10 +183,23 @@ def exiger_periode_v1(periode: Any, *, db_path=None) -> None:
         raise FacturationAvantV1(v1.message_facturation(db_path=db_path))
 
 
+def exiger_facturation_ouverte(periode: Any, *, db_path=None) -> None:
+    """Refuse toute écriture sur les factures d'un mois dont le module « Factures clients » est CLÔTURÉ.
+
+    C'est le verrou réel de cette clôture de module : plus de création, de modification, de validation,
+    d'émission, de suppression ni d'avoir pour ce mois — les factures restent consultables. Le message
+    dit comment rouvrir (justification). Sans clôture de module (ou table absente) : ne refuse rien."""
+    from app.services import cloture_verrous_service as verrous
+    mois = str(periode or "").strip()[:7]
+    if verrous.module_clos(mois, "FACTURES_CLIENTS", db_path=db_path):
+        raise FactureProprietaireError(verrous.message(mois, "FACTURES_CLIENTS"))
+
+
 def _exiger_facture_v1(f: dict[str, Any], *, db_path=None) -> None:
     exiger_periode_v1(f.get("mois"), db_path=db_path)
     if f.get("periode_debut"):
         exiger_periode_v1(f["periode_debut"], db_path=db_path)
+    exiger_facturation_ouverte(f.get("mois"), db_path=db_path)
 
 
 def _opaque(prefix: str) -> str:
@@ -323,6 +336,7 @@ def creer_exceptionnelle(*, proprietaire_id: str, logement_id: str, mois: str,
         raise FactureProprietaireError(
             f"{C_SOURCE_INCOMPLETE}: propriétaire, logement et mois sont obligatoires")
     exiger_periode_v1(mois, db_path=db_path)
+    exiger_facturation_ouverte(mois, db_path=db_path)
 
     preparees = []
     for i, l in enumerate(lignes or [], start=1):
@@ -423,6 +437,7 @@ def creer(source: dict[str, Any], *, acteur: str = "", db_path=None,
     position de refacturation n'est consommée avant `valider()`.
     """
     exiger_periode_v1(source.get("mois"), db_path=db_path)
+    exiger_facturation_ouverte(source.get("mois"), db_path=db_path)
     exiger_reservations_resolues(source.get("mois"), source.get("logement_id"), db_path=db_path)
     apercu = previsualiser(source, decisions_charges=decisions_charges)
     if not apercu["lignes"]:
@@ -987,6 +1002,7 @@ def repasser_en_brouillon(facture_id: str, *, acteur: str = "", motif: str = "",
     f = lire(facture_id, db_path=db_path)
     if f["statut"] == ST_BROUILLON:
         return f                      # déjà brouillon : rien à faire, pas une erreur
+    exiger_facturation_ouverte(f.get("mois"), db_path=db_path)
     if f["statut"] != ST_VALIDE:
         raise FactureProprietaireError(
             f"statut {f['statut']}: seule une facture VALIDE peut repasser en brouillon. "
@@ -1246,6 +1262,7 @@ def marquer_hors_compta(facture_id: str, *, motif: str = "", acteur: str = "",
     déjà constatée (il faudrait un avoir).
     """
     f = lire(facture_id, db_path=db_path)
+    exiger_facturation_ouverte(f.get("mois"), db_path=db_path)
     if f["statut"] != ST_EMIS or f["type_document"] != TYPE_FACTURE:
         raise FactureProprietaireError("seule une facture ÉMISE peut être conservée hors compta")
     conn = get_db(db_path)
@@ -1273,6 +1290,7 @@ def annuler(facture_id: str, *, motif: str, acteur: str = "", db_path=None) -> d
     """Annule un BROUILLON ou un VALIDE. Une facture EMIS ne s'annule pas : elle se corrige par
     un avoir (`creer_avoir`), pour que le document déjà transmis reste dans l'historique."""
     f = lire(facture_id, db_path=db_path)
+    exiger_facturation_ouverte(f.get("mois"), db_path=db_path)
     if f["statut"] == ST_EMIS:
         raise FactureProprietaireError(
             "une facture EMIS ne peut pas etre annulee en place : emettre un avoir")
@@ -1376,6 +1394,7 @@ def creer_avoir_libre(*, proprietaire_id: str, motif: str, montant: Any, logemen
         raise FactureProprietaireError(
             f"{C_SOURCE_INCOMPLETE}: logement et mois obligatoires sans facture d'origine")
     exiger_periode_v1(mois, db_path=db_path)
+    exiger_facturation_ouverte(mois, db_path=db_path)
 
     conn = get_db(db_path)
     try:

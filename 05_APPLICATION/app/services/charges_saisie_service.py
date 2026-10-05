@@ -218,6 +218,24 @@ def _refus(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "code": code, "message": message}
 
 
+def _refus_si_verrouille(mois: Any, db_path=None) -> dict[str, Any] | None:
+    """Refus si le module « Charges et factures fournisseurs » est CLÔTURÉ pour ce mois.
+
+    Une charge est une écriture du domaine : une fois le module clôturé, plus de saisie, de correction,
+    d'annulation, de contrôle ni de réouverture de contrôle sur ce mois — le message dit comment
+    rouvrir. Sans clôture de module (ou table absente), ne refuse rien."""
+    from app.services import cloture_verrous_service as verrous
+
+    texte = verrous.refus(str(mois or "")[:7], "CHARGES", db_path=db_path)
+    return _refus(E_MOIS_CLOTURE, texte) if texte else None
+
+
+def _mois_de_charge(ligne) -> str:
+    """Mois d'une charge lue : `mois` quand il est renseigné, sinon celui de sa date."""
+    mois = str(ligne["mois"] or "").strip() if "mois" in ligne.keys() else ""
+    return mois or str(ligne["date_charge"] or "").strip()[:7]
+
+
 def _nombre(valeur: Any) -> float | None:
     if valeur is None or valeur == "":
         return None
@@ -374,6 +392,9 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None, perimetre=Non
     contrat_refus = _verifier_contrat(donnees)
     if contrat_refus is not None:
         return contrat_refus
+    verrou = _refus_si_verrouille(validation["mois"], db_path)
+    if verrou is not None:
+        return verrou
 
     charge_id = str(donnees.get("charge_id") or "").strip() or f"CHG-{uuid.uuid4().hex[:12]}"
     valeurs = {c: donnees.get(c) for c in CHAMPS_SAISIE}
@@ -451,6 +472,10 @@ def modifier(charge_id: str, donnees: dict[str, Any], *, acteur: str = "", motif
         if avant["statut"] == STATUT_ANNULEE:
             return _refus(E_DEJA_ANNULEE, "Une charge annulée ne se corrige pas ; en créer une "
                                           "nouvelle.")
+        for mois_touche in {_mois_de_charge(avant), validation["mois"]}:
+            verrou = _refus_si_verrouille(mois_touche, db_path)
+            if verrou is not None:
+                return verrou
         valeurs = {c: donnees.get(c) for c in CHAMPS_SAISIE}
         valeurs["montant"] = validation["montant"]
         valeurs["mois"] = validation["mois"]
@@ -489,6 +514,9 @@ def annuler(charge_id: str, *, acteur: str = "", motif: str = "", db_path=None) 
             return _refus(E_INTROUVABLE, f"Charge inconnue : {charge_id}.")
         if avant["statut"] == STATUT_ANNULEE:
             return _refus(E_DEJA_ANNULEE, f"La charge {charge_id} est déjà annulée.")
+        verrou = _refus_si_verrouille(_mois_de_charge(avant), db_path)
+        if verrou is not None:
+            return verrou
         conn.execute("UPDATE charges SET statut = ?, date_modification = ? WHERE charge_id = ?",
                      (STATUT_ANNULEE, _maintenant(), charge_id))
         _journaliser(conn, charge_id, EVT_ANNULATION, acteur, motif,
@@ -537,6 +565,9 @@ def valider_controle(charge_id: str, *, acteur: str = "", motif: str = "",
         if actuel == CONTROLE_VALIDE:
             return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_VALIDE,
                     "inchange": True}
+        verrou = _refus_si_verrouille(_mois_de_charge(avant), db_path)
+        if verrou is not None:
+            return verrou
         refus = refus_hors_compta_liee(conn, charge_id, avant)
         if refus is not None:
             return refus
@@ -605,6 +636,9 @@ def rouvrir_controle(charge_id: str, *, acteur: str = "", motif: str = "",
         if not mois:
             mois = str(avant["date_charge"] or "").strip()[:7]
         if mois:
+            verrou = _refus_si_verrouille(mois, db_path)
+            if verrou is not None:
+                return verrou
             ferme = conn.execute(
                 "SELECT statut_mois FROM ref_cloture_mensuelle WHERE mois = ?", (mois,)).fetchone()
             if ferme is not None and str(ferme["statut_mois"]).strip().upper() == "CLOTURE":
@@ -660,6 +694,9 @@ def signaler_anomalie(charge_id: str, *, acteur: str = "", motif: str = "",
         if actuel == CONTROLE_ANOMALIE:
             return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_ANOMALIE,
                     "inchange": True}
+        verrou = _refus_si_verrouille(_mois_de_charge(avant), db_path)
+        if verrou is not None:
+            return verrou
         conn.execute(
             "UPDATE charges SET statut_controle = ?, date_modification = ? WHERE charge_id = ?",
             (CONTROLE_ANOMALIE, _maintenant(), charge_id))

@@ -1,46 +1,39 @@
 {% extends "base.html" %}
-{% block title %}Validation clôture{% endblock %}
+{% from "_cloture_tableau.html" import tableau_complet %}
+{% block title %}Validation de la clôture{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/static/css/cloture.css">
 
 <div class="page-header">
-  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture</a>
-  <h1 class="page-title">Validation finale — {{ cloture.mois if cloture else '' }}</h1>
+  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture{% if cloture %} de {{ progression.mois_fr }}{% endif %}</a>
+  <h1 class="page-title">Validation finale{% if cloture %} — {{ progression.mois_fr }}{% endif %}</h1>
 </div>
 
 {% if cloture is none %}
-<div class="alert alert-warning">Clôture introuvable.</div>
+<div class="alert alert-warning" role="alert">Clôture introuvable.</div>
 {% else %}
 
-<div class="alert alert-info">« Valider » enregistre la validation humaine de la préparation : le
-  mois n'est pas encore gelé. La clôture définitive est une décision distincte, proposée ensuite sur
-  la fiche de la clôture.</div>
+<div class="alert alert-info">Cette page est conservée pour les clôtures déjà en cours de validation. Désormais, la
+  validation est portée par la clôture de chaque module : le mois se clôture dès que tous ses modules le sont,
+  depuis la <a href="/clotures/{{ cloture.cloture_id_opaque }}">fiche de la clôture</a>.
+  « Valider » enregistre la validation humaine de la préparation : le mois n'est pas encore gelé.</div>
 
-{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" role="alert">{{ erreur }}</div>{% endif %}
 
 {% if snapshot_derive %}
 <div class="alert alert-warning">
-  ⚠ Les contrôles ont évolué depuis la préparation de cette clôture. Le résumé ci-dessous reflète
+  Les contrôles ont évolué depuis la préparation de cette clôture. Le résumé ci-dessous reflète
   l'état ACTUEL (recalculé à chaque tentative de validation), pas l'instantané de préparation.
 </div>
 {% endif %}
 
-{% include "_cloture_bilan_mois.html" %}
+{{ tableau_complet(tableau, cloture.cloture_id_opaque) }}
 
-<div class="card mb-md">
-  <h2 class="card-title">Résumé (état courant — recalculé à chaque validation)</h2>
-  <dl class="detail-grid">
-    <div><dt>Bloqueurs</dt><dd>{{ progression.nb_bloqueurs }}</dd></div>
-    <div><dt>Exceptions</dt><dd>{{ progression.nb_exceptions }}</dd></div>
-    <div><dt>Résolus</dt><dd>{{ progression.nb_resolus }}</dd></div>
-    <div><dt>Informatifs</dt><dd>{{ progression.nb_informatifs }}</dd></div>
-  </dl>
-</div>
-
-<div class="card">
+<div class="card" style="margin-top:var(--ui-4)">
   <h2 class="card-title">Décision</h2>
   <form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/valider"
-        onsubmit="return confirm('Confirmez-vous la validation du suivi humain pour {{ cloture.mois }} ? Le mois ne sera pas encore clôturé définitivement.');">
-    <div class="form-field form-field-full">
+        onsubmit="return confirm('Confirmez-vous la validation du suivi humain pour {{ progression.mois_fr }} ? Le mois ne sera pas encore clôturé définitivement.');">
+    <div class="clo-champ">
       <label for="f-commentaire">Commentaire final (requis)</label>
       <textarea id="f-commentaire" name="commentaire" class="filter-input" required></textarea>
     </div>

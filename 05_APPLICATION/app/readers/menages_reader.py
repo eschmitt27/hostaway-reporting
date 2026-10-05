@@ -208,11 +208,15 @@ def _lire_sqlite(cle: str, libelle: str, table: str, db_path=None) -> SourceMena
 
 # --- Sources ---------------------------------------------------------------
 
-def rapprochement() -> SourceMenages:
+def rapprochement(db_path=None) -> SourceMenages:
     """Lot6d — la ligne de rapprochement (mois × logement × intervenant). SQLite (0038), sans
     repli Excel : `menages_rapprochement` porte exactement les mêmes colonnes que
-    TABLEAU_COMPARAISON, moteur inchangé, seule l'entrée/sortie change de support."""
-    return _lire_sqlite("rapprochement", "Rapprochement (Lot6d)", "menages_rapprochement")
+    TABLEAU_COMPARAISON, moteur inchangé, seule l'entrée/sortie change de support.
+
+    `db_path` optionnel : les écrans n'en passent pas (ils lisent `cfg.DB_PATH`) ; la clôture, elle, lit
+    la base qu'on lui désigne."""
+    return _lire_sqlite("rapprochement", "Rapprochement (Lot6d)", "menages_rapprochement",
+                        db_path=db_path)
 
 
 def controles_rapprochement() -> SourceMenages:

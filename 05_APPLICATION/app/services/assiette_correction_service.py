@@ -112,6 +112,11 @@ def corriger(ctrl_opaque: str, *, nouvelle_assiette: str, justification: str, ac
     if prep is None:
         return _refus("ELEMENT_INTROUVABLE_OU_HORS_PERIMETRE",
                       "Contrôle introuvable ou non éligible à la correction d'assiette.")
+    # Module « Réservations » clôturé pour ce mois : l'assiette d'un séjour ne se corrige plus.
+    from app.services import cloture_verrous_service as verrous
+    texte_module = verrous.refus(prep.get("mois"), "RESERVATIONS", db_path=db_path)
+    if texte_module:
+        return _refus("MOIS_CLOTURE", texte_module)
 
     taux = prep["taux_commission"] or 0.0
     ancienne_commission = prep["commission_actuelle"]

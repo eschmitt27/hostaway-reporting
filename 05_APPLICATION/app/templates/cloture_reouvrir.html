@@ -4,23 +4,24 @@
 
 <div class="page-header">
   <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture</a>
-  <h1 class="page-title">Rouvrir — {{ cloture.mois if cloture else '' }}</h1>
+  <h1 class="page-title">Rouvrir la clôture{% if cloture %} — {{ cloture.mois|mois_humain }}{% endif %}</h1>
 </div>
 
 {% if cloture is none %}
 <div class="alert alert-warning">Clôture introuvable.</div>
 {% else %}
 
-<div class="alert alert-info">Réouverture exceptionnelle du suivi humain. L'historique complet est
-  conservé — aucune suppression.</div>
+<div class="alert alert-info">Réouverture exceptionnelle de la clôture validée : elle repasse en préparation.
+  L'historique complet est conservé — aucune suppression. Pour corriger un seul domaine, rouvrez plutôt son
+  module depuis la <a href="/clotures/{{ cloture.cloture_id_opaque }}">fiche de la clôture</a>.</div>
 
 {% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
 
 <div class="card">
   <form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/reouvrir"
-        onsubmit="return confirm('Confirmez-vous la réouverture du suivi humain pour {{ cloture.mois }} ?');">
+        onsubmit="return confirm('Confirmez-vous la réouverture de la clôture de {{ cloture.mois|mois_humain }} ?');">
     <div class="form-field form-field-full">
-      <label for="f-justification">Justification (requise)</label>
+      <label for="f-justification">Justification (obligatoire)</label>
       <textarea id="f-justification" name="justification" class="filter-input" required></textarea>
     </div>
     <button type="submit" class="btn btn-primary mt-md">Rouvrir la clôture</button>

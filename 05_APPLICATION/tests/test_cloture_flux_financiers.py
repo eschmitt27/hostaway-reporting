@@ -28,6 +28,7 @@ from app.services import comptabilite_ecritures_service as compta
 from app.services import comptabilite_mappings_service as maps
 from app.services import flux_financiers_service as flux
 from app.services import flux_lettrage_service as lettrage
+from tests.aides_cloture_modules import clore_modules
 from tests.test_flux_financiers import (ACTEUR, _charge, _fournisseur, _importer, _mvt,  # noqa: F401
                                         _par_montant, base, verrous)
 
@@ -284,7 +285,11 @@ def test_archivage_refait_les_memes_gardes(base, verrous):
     with pytest.raises(cs.ClotureRefusee, match="encore en cours"):
         cs.archiver(cs.charger_par_mois(COURANT, base), acteur=ACTEUR, db_path=base)
     c = cs.valider(_a_valider(base), acteur=ACTEUR, commentaire="ok", db_path=base)
-    _ecriture_proposee(base)
+    # Clôture par modules : avec un module encore ouvert, le serveur refuse avant tout autre contrôle.
+    with pytest.raises(cs.ClotureRefusee, match="tous les modules doivent d'abord l'être"):
+        cs.archiver(c, acteur=ACTEUR, db_path=base)
+    clore_modules(base, PASSE)
+    _importer(base, [_mvt(33.0, date="2026-07-10")])        # reçu après la clôture des modules
     with pytest.raises(cs.ClotureRefusee, match="1 contrôle bloquant"):
         cs.archiver(c, acteur=ACTEUR, db_path=base)
     conn = get_db(base)
@@ -324,10 +329,10 @@ def test_25_lecture_du_mois_courant_sans_ecriture(client, base, verrous):
     avant = _empreinte(base, "clotures_mensuelles", "cloture_evenements", *TABLES_METIER)
     r = client.get(f"/clotures/mois/{COURANT}")
     page = html.unescape(r.text)
-    assert r.status_code == 200 and "Contrôle du mois — septembre 2026" in page
-    assert "Clôture impossible — 1 élément bloquant" in page
+    assert r.status_code == 200 and "Clôture de septembre 2026" in page
+    assert "1 bloqueur à traiter" in page, "la synthèse compte les bloqueurs de tous les modules"
     assert "encore en cours et ne peut pas être clôturé" in page
-    assert "Mouvement bancaire à qualifier" in page and "Traiter dans Flux financiers" in page
+    assert "1 mouvement bancaire à qualifier" in page and "Traiter les mouvements" in page
     assert _empreinte(base, "clotures_mensuelles", "cloture_evenements", *TABLES_METIER) == avant
     liste = html.unescape(client.get("/clotures").text)
     assert "septembre 2026" in liste, "le mois courant figure dans la liste, même sans constat moteur"
@@ -389,6 +394,7 @@ def test_30_non_regression_flux_mois_cloture_protege(base, verrous):
     """Après la clôture définitive (archivage, exposé par la route de la Mission 33), Flux refuse tout
     rapprochement sur le mois : la protection existante reste celle qui s'applique."""
     c = cs.valider(_a_valider(base), acteur=ACTEUR, commentaire="ok", db_path=base)
+    clore_modules(base, PASSE)
     cs.archiver(c, acteur=ACTEUR, db_path=base)
     assert flux.mois_cloture(PASSE, db_path=base)
     _importer(base, [_mvt(15.0, date="2026-07-25")])

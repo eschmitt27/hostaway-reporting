@@ -97,6 +97,17 @@ def _refus(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "code": code, "message": message}
 
 
+E_MOIS_CLOTURE = "CR_MOIS_CLOTURE"
+
+
+def _refus_si_verrouille(mois: Any, db_path=None) -> dict[str, Any] | None:
+    """Refus si le module « Créances et dettes » est CLÔTURÉ pour ce mois : plus de reversement
+    Airbnb, de reprise de solde ni d'imputation de crédit daté de ce mois (cloture_verrous_service)."""
+    from app.services import cloture_verrous_service as verrous
+    texte = verrous.refus(_txt(mois)[:7], "CREANCES", db_path=db_path)
+    return _refus(E_MOIS_CLOTURE, texte) if texte else None
+
+
 def _date_fr(d: Any) -> str:
     t = _txt(d)[:10]
     return f"{t[8:10]}/{t[5:7]}/{t[:4]}" if len(t) == 10 else t
@@ -198,6 +209,9 @@ def creer_reversement_airbnb(proprietaire_id: str, montant: Any, date_origine: s
         date.fromisoformat(_txt(date_origine)[:10])
     except ValueError:
         return _refus(E_DATE, "Date d'origine invalide (AAAA-MM-JJ).")
+    verrou = _refus_si_verrouille(date_origine, db_path)
+    if verrou is not None:
+        return verrou
     if mode not in (MODE_BANQUE, MODE_JUSTIFIE):
         return _refus(E_MODE, "Origine : encaissement bancaire ou justifiée.")
     compte_source = _txt(compte_source)
@@ -348,6 +362,9 @@ def imputer(credit_id: str, facture_id: str, montant: Any, *, acteur: str,
                                    "client.")
     if valeur > solde + EPS:
         return _refus(E_SOLDE_FACTURE, f"La facture ne doit plus que {solde:.2f} €.")
+    verrou = _refus_si_verrouille(f["mois"], db_path)
+    if verrou is not None:
+        return verrou
 
     imputation_id = "IMPA-" + uuid.uuid4().hex[:12].upper()
     conn = get_db(db_path)
@@ -458,6 +475,9 @@ def creer_reprise_solde(proprietaire_id: str, montant: Any, date_origine: str, *
         date.fromisoformat(jour)
     except ValueError:
         return _refus(E_DATE, "Date d'origine invalide (AAAA-MM-JJ).")
+    verrou = _refus_si_verrouille(jour, db_path)
+    if verrou is not None:
+        return verrou
     if not compta._flags_actifs():
         return _refus(E_ECRITURE, compta.MESSAGES[compta.E_FLAGS])
 

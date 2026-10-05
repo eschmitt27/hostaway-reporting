@@ -137,6 +137,9 @@ OBSERVABILITE = (
     "menages_recalcul_runs", "menages_runs_cibles", "saisie_charges_writes",
     "cloture_statuts", "cloture_statut_evenements", "mois_reouvertures", "periodes_comptables",
     "periode_evenements", "periods",
+    # Clôture par modules (0126) : journal en ajout seul, impossible avant la V1 (déclencheur) donc
+    # jamais concerné par une purge de l'ancien modèle.
+    "cloture_modules", "cloture_modules_evenements",
 )
 DERIVES = (
     "flux_unifies", "flux_unifies_runs", "lot10_commissions", "lot10_commissions_a_controler",

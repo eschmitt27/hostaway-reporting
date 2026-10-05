@@ -5,8 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Chouette Patrimoine{% endblock %} — Pilotage Conciergerie</title>
   <link rel="stylesheet" href="/static/css/app.css">
+  {# Lien d'évitement du clavier : sa feuille de style est ICI et non dans ui.css, pour qu'un navigateur qui garde
+     une ancienne ui.css en cache ne l'affiche jamais comme un lien ordinaire en haut de page. #}
+  <style>
+    .ui-aller-contenu { position: absolute; left: 8px; top: -56px; z-index: 1000; padding: 10px 16px; border-radius: 6px;
+      background: #003441; color: #fff; font-size: 14px; font-weight: 600; text-decoration: none; }
+    .ui-aller-contenu:focus { top: 8px; }
+    #contenu-principal:focus, #contenu-principal:focus-visible { outline: none; box-shadow: none; }
+  </style>
 </head>
 <body>
+<a href="#contenu-principal" class="ui-aller-contenu">Aller au contenu principal</a>
 <div class="app-layout">
   <div class="ui-voile" data-ui-voile aria-hidden="true"></div>
 
@@ -154,7 +163,7 @@
     {% endif %}
 
     <!-- Contenu page -->
-    <main class="page-content">
+    <main class="page-content" id="contenu-principal" tabindex="-1">
       {% block content %}{% endblock %}
     </main>
 

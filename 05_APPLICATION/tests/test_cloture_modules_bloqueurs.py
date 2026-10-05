@@ -107,17 +107,70 @@ def test_03_la_progression_globale_est_la_somme_des_modules(base, verrous):
 
 # ══ 4-5. Le calcul réel des bloqueurs et leurs compteurs ═════════════════════════════════════════
 
-def test_04_un_menage_non_rapproche_bloque_les_menages_en_langage_metier(base):
-    el = _el("MENAGE_EXTERNE_ECART_HOSTAWAY", "MENAGES_EXT",
-             donnees={"logement": "LOG_X", "nombre_facture": 3, "nombre_hostaway": 2, "mois": MOIS})
-    a = _analyse(base, elements=[el])
+def _ligne_menages(db, *, logement="LOG_X", intervenant="INT_X", mois=MOIS, statut="A_CONTROLER",
+                   ecart=1, hostaway=5, declares=6, nom="Studio des Tilleuls", intervenant_nom="Kheira"):
+    """Une ligne du rapprochement des ménages, telle que le moteur Ménages la produit."""
+    conn = get_db(db)
+    try:
+        conn.execute(
+            "INSERT INTO menages_rapprochement (mois, nom_appartement, logement_id, proprietaire_id, "
+            "intervenant_id, nom_intervenant, type_intervenant, nb_menages_tasks_hostaway_completed, "
+            "nb_menages_declares_interne_m04, nb_menages_declares_externe, total_menages_declares, ecart, "
+            "statut_controle, code_controle) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (mois, nom, logement, "PROP_X", intervenant, intervenant_nom, "INTERNE", hostaway, declares, 0,
+             declares, ecart, statut, "MENAGE_ECART_NOMBRE"))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_04_une_ligne_de_menages_a_controler_bloque_les_menages_en_langage_metier(base):
+    _ligne_menages(base)
+    a = _complete(base)
     men = a[cm.MENAGES]
     assert men["nb_bloqueurs"] == 1
     g = men["bloqueurs"][0]
-    assert g["libelle"] == "1 ménage facturé non rapproché des ménages Hostaway"
-    assert "3 facturé(s) pour 2 chez Hostaway" in g["items"][0]["libelle"]
-    assert g["lien"] == "/menages?mois=2026-09&ecart_seul=true"
+    assert g["libelle"] == "1 ligne de ménages à contrôler"
+    assert g["items"][0]["libelle"] == "Studio des Tilleuls — Kheira"
+    assert g["items"][0]["detail"] == "5 ménages réalisés chez Hostaway, 6 déclarés ou facturés"
+    assert g["items"][0]["lien"] == "/menages/2026-09/LOG_X/INT_X", "la vraie fiche de la ligne"
+    assert g["lien"] == "/menages/a-controler?mois=2026-09", "l'écran « À contrôler » du module"
     assert all(a[c]["nb_bloqueurs"] == 0 for c in a if c != cm.MENAGES)
+
+
+def test_04_bis_un_ecart_justifie_ou_valide_ne_bloque_plus_meme_si_le_moteur_le_signale(base):
+    """Le module Ménages est seul juge de ses écarts : une ligne justifiée (outrepassée, avec son motif)
+    ou validée n'est plus « à contrôler ». Le constat brut du moteur, lui, continue de signaler l'écart :
+    il ne doit PAS bloquer à la place du module."""
+    from app.services import menages_service as men
+    _ligne_menages(base)                                              # à contrôler
+    _ligne_menages(base, logement="LOG_V", statut="VALIDE", nom="Studio validé")
+    _ligne_menages(base, logement="LOG_A", mois="2026-08", nom="Studio d'août")
+    constat = _el("MENAGE_EXTERNE_ECART_HOSTAWAY", "MENAGES_EXT",
+                  donnees={"logement": "LOG_X", "nombre_facture": 6, "nombre_hostaway": 5, "mois": MOIS})
+    avant = cm.analyser(MOIS, elements=[constat], flux=FLUX_VIDE, db_path=base)["par_cle"][cm.MENAGES]
+    assert avant["nb_bloqueurs"] == 1, "une seule ligne à contrôler : ni la validée, ni celle d'un autre mois"
+    # Justification dans le VRAI module : aucun recalcul, aucune case « traité » dans la clôture.
+    assert men.enregistrer_outrepassage(MOIS, "LOG_X", "INT_X", "Ménage pour mariage")["ok"]
+    apres = cm.analyser(MOIS, elements=[constat], flux=FLUX_VIDE, db_path=base)["par_cle"][cm.MENAGES]
+    assert apres["nb_bloqueurs"] == 0, "écart justifié dans Ménages : le bloqueur disparaît tout seul"
+    assert apres["nb_informatifs"] == 0, "et le constat brut du moteur ne revient pas sous une autre forme"
+
+
+def test_04_ter_une_identification_incomplete_bloque_les_menages(base):
+    _ligne_menages(base, intervenant="NON_ATTRIBUE", intervenant_nom="", statut="VALIDE", ecart=0,
+                   hostaway=3, declares=3)
+    g = _complete(base)[cm.MENAGES]["bloqueurs"][0]
+    assert g["libelle"] == "1 ligne de ménages à contrôler"
+    assert g["items"][0]["detail"] == "intervenant ou logement à identifier"
+
+
+def test_04_quater_une_lecture_impossible_des_menages_ne_se_tait_pas(base, monkeypatch):
+    from app.services import menages_service as men
+    monkeypatch.setattr(men, "lignes_a_controler", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+    men_ = _complete(base)[cm.MENAGES]
+    assert men_["nb_bloqueurs"] == 1 and men_["bloqueurs"][0]["libelle"] == "1 lecture des ménages impossible"
+    assert men_["bloqueurs"][0]["lien"] == "/menages?mois=2026-09"
 
 
 def test_05_les_compteurs_comptent_les_elements_pas_les_groupes(base):
@@ -131,7 +184,7 @@ def test_05_les_compteurs_comptent_les_elements_pas_les_groupes(base):
 
 def test_05_bis_aucun_code_ni_identifiant_technique_n_est_expose(base, verrous):
     elements = [_el("COMMISSION_SANS_TAUX", "TRANSVERSE", niveau="BLOQUANT"),
-                _el("MENAGE_EXTERNE_LOGEMENT_HORS_HA", "MENAGES_EXT"),
+                _el("MENAGE_HA_SANS_FACTURE_EXTERNE", "MENAGES_EXT", info=True),
                 _el("UN_CODE_QUE_PERSONNE_N_A_TRADUIT", "MODULE_INCONNU")]
     _importer(base, [_mvt(42.0)])
     a = cm.analyser(MOIS, elements=elements, db_path=base)["par_cle"]
@@ -299,6 +352,15 @@ def test_13_un_sejour_hors_periode_de_gestion_bloque_les_reservations_puis_dispa
     finally:
         conn.close()
     assert _complete(base)[cm.RESERVATIONS]["nb_bloqueurs"] == 0
+
+
+def test_13_ter_chaque_cause_d_exclusion_est_dite_pour_ce_qu_elle_est(base):
+    """Le séjour à cheval sur la fin de gestion (arrivé pendant la gestion, parti après) n'est pas un séjour
+    sans gestion : ce qu'il faut corriger — la date de fin — n'est pas ce qu'on corrige pour l'autre."""
+    _semer_sejour(base, code="GESTION_LOGEMENT_OUT_OF_PERIOD")
+    g = _complete(base)[cm.RESERVATIONS]["bloqueurs"][0]
+    assert g["libelle"] == "1 séjour à cheval sur la fin de gestion"
+    assert "date de fin de gestion" in g["pourquoi"] and g["lien"] == "/logements/LOG_CMOD"
 
 
 def test_13_bis_un_sejour_valide_ou_d_un_autre_mois_ne_bloque_pas(base):

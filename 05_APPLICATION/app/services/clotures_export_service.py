@@ -83,6 +83,15 @@ def exporter_dossier(cloture: dict, db_path=None) -> str:
     row("compteur", "reapparus", progression["nb_reapparus"])
     row("compteur", "informatifs", progression["nb_informatifs"])
 
+    # Clôture par modules : où en est chaque domaine, quand et par qui il a été clôturé.
+    from app.services import cloture_modules_service as cm
+    tableau = cm.tableau_de_bord(cloture, progression=progression, db_path=db_path)
+    w.writerow([])
+    row("modules", "module", "etat", "bloqueurs", "cloture_le", "cloture_par", "reouvertures")
+    for m in tableau["modules"]:
+        row("module", m["libelle"], m["etat_libelle"], m["nb_bloqueurs"], m["date_cloture_fr"],
+            m["acteur_cloture"], m["nb_reouvertures"])
+
     w.writerow([])
     row("bloqueurs", "code", "module", "entite_opaque")
     for b in progression["bloqueurs"]:

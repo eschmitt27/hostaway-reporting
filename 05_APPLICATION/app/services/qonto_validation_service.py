@@ -74,6 +74,7 @@ E_VERROU_BANQUE = "QV08_ECRITURES_BANCAIRES_DESACTIVEES"
 E_VERROU_COMPTA = "QV09_ECRITURES_COMPTABLES_DESACTIVEES"
 E_ECRITURE_REFUSEE = "QV10_ECRITURE_REFUSEE"
 E_DEPASSEMENT_CCA = "QV11_REMBOURSEMENT_SUPERIEUR_AU_SOLDE_CCA"
+E_MOIS_CLOTURE = "QV12_MOIS_CLOTURE"
 
 MESSAGES = {
     E_INTROUVABLE: "Cette transaction Qonto est introuvable.",
@@ -142,6 +143,19 @@ def _maintenant() -> str:
 
 def _refus(code: str, detail: str = "") -> dict:
     return {"ok": False, "code": code, "message": MESSAGES.get(code, code), "detail": detail}
+
+
+def _refus_mois_ferme(ligne: dict | None, *, db_path=None) -> dict | None:
+    """Le mois du mouvement est FERMÉ pour la banque : module « Banque et caisse » clôturé, mois ou période
+    comptable clôturés. Plus de rapprochement ni d'annulation de rapprochement — la même garde que le lettrage
+    de Flux financiers (`flux_financiers_service.mois_cloture`), qui dit comment rouvrir."""
+    from app.services import flux_financiers_service as flux
+
+    if not ligne:
+        return None
+    date = str(ligne.get("regle_le") or ligne.get("emis_le") or "")[:10]
+    motif = flux.mois_cloture(date[:7], db_path=db_path) if len(date) >= 7 else ""
+    return ({"ok": False, "code": E_MOIS_CLOTURE, "message": motif, "detail": date[:7]} if motif else None)
 
 
 def mouvement_opaque(transaction_id: str) -> str:
@@ -330,6 +344,9 @@ def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=N
         return _refus(E_INTROUVABLE, uuid_transaction)
     if (ligne.get("statut") or "").lower() != "completed":
         return _refus(E_PENDING)
+    ferme = _refus_mois_ferme(ligne, db_path=db_path)
+    if ferme is not None:
+        return ferme
     if nature not in LIBELLES_NATURE:
         return _refus(E_NATURE_INCONNUE, nature)
 
@@ -527,6 +544,10 @@ def annuler(rapprochement_id_opaque: str, *, motif: str, acteur: str = "", db_pa
         return _refus(E_VERROU_BANQUE)
     if not (motif or "").strip():
         return _refus(E_MOTIF_REQUIS)
+    ferme = _refus_mois_ferme(_transaction_du_rapprochement(rapprochement_id_opaque, db_path=db_path),
+                              db_path=db_path)
+    if ferme is not None:
+        return ferme
 
     ecriture = compta.charger_par_origine("RAPPROCHEMENT", rapprochement_id_opaque, db_path)
     # Contrepasser EST une écriture. Annuler à moitié — rapprochement défait, écriture restée en
@@ -546,6 +567,17 @@ def annuler(rapprochement_id_opaque: str, *, motif: str, acteur: str = "", db_pa
                                                acteur=acteur, db_path=db_path)
     _rendre_le_mouvement_a_traiter(rapprochement_id_opaque, db_path=db_path)
     return resultat
+
+
+def _transaction_du_rapprochement(rapprochement_id_opaque: str, *, db_path=None) -> dict | None:
+    """La transaction Qonto que ce rapprochement concerne (None si elle n'est pas retrouvée)."""
+    conn = get_db(db_path)
+    try:
+        rap = conn.execute("SELECT mouvement_id_opaque FROM banque_rapprochements "
+                           "WHERE rapprochement_id_opaque=?", (rapprochement_id_opaque,)).fetchone()
+    finally:
+        conn.close()
+    return transaction_par_mouvement(rap["mouvement_id_opaque"], db_path=db_path) if rap else None
 
 
 def _rendre_le_mouvement_a_traiter(rapprochement_id_opaque: str, *, db_path=None) -> None:

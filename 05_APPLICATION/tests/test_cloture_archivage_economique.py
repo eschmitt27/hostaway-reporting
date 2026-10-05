@@ -15,6 +15,7 @@ from app.db.connection import apply_migrations, get_db
 from app.services import cloture_archivage_service as arch
 from app.services import clotures_service as cs
 from app.services import orchestrateur_moteur as om
+from tests.aides_cloture_modules import clore_modules
 
 
 @pytest.fixture
@@ -68,7 +69,10 @@ def _amener_a_valide(db_path, mois="2026-06", acteur="TEST"):
     c = cs.creer_ou_charger(mois, acteur=acteur, db_path=db_path)
     c = cs.demarrer_preparation(c, acteur=acteur, db_path=db_path)
     c = cs.passer_a_valider(c, acteur=acteur, db_path=db_path)
-    return cs.valider(c, acteur=acteur, commentaire="Controles revus, RAS", db_path=db_path)
+    c = cs.valider(c, acteur=acteur, commentaire="Controles revus, RAS", db_path=db_path)
+    # Clôture par modules : le mois ne se clôture que lorsque tous ses modules le sont.
+    clore_modules(db_path, mois, acteur=acteur)
+    return c
 
 
 def test_mois_ouvert_aucune_archive_definitive(db_avec_reservation):

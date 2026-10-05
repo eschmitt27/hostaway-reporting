@@ -1,35 +1,51 @@
 {% extends "base.html" %}
-{% block title %}Historique clôture{% endblock %}
+{% block title %}Historique de la clôture{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/static/css/cloture.css">
 
 <div class="page-header">
-  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture</a>
-  <h1 class="page-title">Historique — {{ cloture.mois if cloture else '' }}</h1>
+  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture{% if cloture %} de {{ mois_fr }}{% endif %}</a>
+  <h1 class="page-title">Historique de la clôture{% if cloture %} — {{ mois_fr }}{% endif %}</h1>
+  <p class="page-subtitle">Chaque clôture, chaque réouverture et chaque décision, du plus récent au plus ancien. Rien ne s'y efface.</p>
 </div>
 
 {% if cloture is none %}
-<div class="alert alert-warning">Clôture introuvable.</div>
+<div class="alert alert-warning" role="alert">Clôture introuvable.</div>
 {% else %}
 
-<div class="card">
-  <div class="table-container">
-    <table class="data-table">
-      <thead><tr><th>Événement</th><th>Ancien statut</th><th>Nouveau statut</th><th>Commentaire</th><th>Date</th><th>Acteur</th></tr></thead>
-      <tbody>
-        {% for h in historique %}
-        <tr>
-          <td class="font-mono text-xs">{{ h.type_evenement }}</td>
-          <td class="text-xs">{{ h.ancien_statut or "—" }}</td>
-          <td class="text-xs">{{ h.nouveau_statut or "—" }}</td>
-          <td class="text-xs">{{ h.commentaire or "—" }}</td>
-          <td class="font-mono text-xs">{{ h.date_evenement|datetime_fr }}</td>
-          <td class="text-xs">{{ h.acteur or "—" }}</td>
-        </tr>
-        {% else %}<tr><td colspan="6" class="section-note">Aucun événement.</td></tr>{% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
+{# Libellés métier : le code d'événement et les statuts internes ne s'affichent jamais. #}
+{% set evenements = {
+  'CREATION': 'Clôture ouverte',
+  'CONTROLES': 'Contrôles recalculés',
+  'PREUVE_AJOUTEE': 'Pièce ajoutée à la clôture',
+  'MODULE_CLOTURE': 'Module clôturé',
+  'MODULE_ROUVERT': 'Module rouvert',
+} %}
+{% set etapes = {
+  'EN_PREPARATION': 'Préparation démarrée',
+  'A_VALIDER': 'Contrôles arrêtés pour validation',
+  'VALIDEE': 'Clôture validée',
+  'ROUVERTE': 'Clôture rouverte',
+  'ARCHIVEE': 'Mois clôturé définitivement',
+} %}
+
+<section class="card" aria-label="Journal de la clôture">
+  {% if historique %}
+  <ol class="clo-journal" data-testid="journal-cloture">
+    {% for h in historique %}
+    <li class="clo-journal__ligne">
+      <span class="clo-journal__quand">{{ h.date_evenement|datetime_fr }}{% if h.acteur %} · {{ h.acteur }}{% endif %}</span>
+      <span class="clo-journal__quoi">
+        {% if h.type_evenement == 'TRANSITION' %}{{ etapes.get(h.nouveau_statut, 'Changement d’état') }}{% else %}{{ evenements.get(h.type_evenement, 'Événement') }}{% endif %}
+        {% if h.commentaire %}<span class="clo-journal__detail">{{ h.commentaire }}</span>{% endif %}
+      </span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="section-note" style="margin:0">Aucun événement.</p>
+  {% endif %}
+</section>
 
 {% endif %}
 {% endblock %}

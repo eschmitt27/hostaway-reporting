@@ -784,6 +784,13 @@ def valider(
                     err("date_arrivee", code_refus or "MOIS_HORS_REFERENTIEL_CLOTURE",
                         f"Mois {mois} antérieur à la dernière clôture prononcée : une saisie "
                         "ne peut pas être antidatée dans une période déjà arrêtée.")
+            else:
+                # Module « Réservations » clôturé pour ce mois, alors que le mois entier ne l'est
+                # pas encore : plus de saisie, de modification ni de régularisation de séjour.
+                from app.services import cloture_verrous_service as verrous
+                texte_module = verrous.refus(mois, "RESERVATIONS", db_path=db_path)
+                if texte_module:
+                    err("date_arrivee", "MOIS_CLOTURE", texte_module)
         except Exception as exc:
             err("date_arrivee", "REF_SETUP_INDISPONIBLE",
                 f"REF_Setup inaccessible pour vérification clôture (D10) : {exc}")

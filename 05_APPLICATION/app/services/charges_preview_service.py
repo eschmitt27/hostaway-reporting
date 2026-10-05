@@ -557,6 +557,13 @@ def validate_charge(
         statut_mois = cloture_map.get(mois_charge)
         if statut_mois == "CLOTURE":
             err("V02_MOIS_CLOTURE", f"Le mois {mois_charge} est clôturé — saisie impossible.")
+        else:
+            # Module « Charges et factures fournisseurs » clôturé pour ce mois (le mois entier ne
+            # l'est pas forcément encore) : même refus, avec le chemin pour rouvrir.
+            from app.services import cloture_verrous_service as verrous
+            texte_module = verrous.refus(mois_charge, "CHARGES")
+            if texte_module:
+                err("V02_MOIS_CLOTURE", texte_module)
 
     # V03 — montant obligatoire et > 0
     montant_raw = str(form_data.get("montant", "")).strip().replace(",", ".")

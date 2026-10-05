@@ -196,10 +196,15 @@ MODULE_DES_CONTROLES: dict[str, str] = {
 }
 DOMAINE_PAR_DEFAUT = RESERVATIONS
 
-#: Contrôles remplacés par une lecture DIRECTE (même règle, mais relue en direct plutôt qu'au
-#: prochain calcul du moteur) : les compter deux fois les ferait apparaître en double — et le
-#: constat moteur resterait affiché après la validation de la charge, jusqu'au calcul suivant.
-CODES_LUS_EN_DIRECT = {"CHARGE_NON_VALIDEE_HORS_CALCULS"}
+#: Contrôles remplacés par une lecture DIRECTE du module concerné : les compter aussi ferait apparaître
+#: le même problème en double — et, pire, le constat moteur resterait affiché après la décision prise
+#: dans le module (charge validée, écart de ménage justifié), jusqu'au calcul suivant.
+#:   · une charge non validée → relue dans Charges ;
+#:   · un écart de ménages (facturé ≠ Hostaway, logement facturé absent d'Hostaway) → c'est le module
+#:     Ménages qui dit s'il est « à contrôler », « justifié » (outrepassé) ou « validé » : une ligne
+#:     justifiée n'est plus un bloqueur, et le constat du moteur, lui, l'ignore.
+CODES_LUS_EN_DIRECT = {"CHARGE_NON_VALIDEE_HORS_CALCULS", "MENAGE_EXTERNE_ECART_HOSTAWAY",
+                       "MENAGE_EXTERNE_LOGEMENT_HORS_HA"}
 
 _LIEN_RESERVATIONS = "/reservations?mois={mois}&statut_controle=A_CONTROLER"
 
@@ -296,15 +301,14 @@ TRADUCTIONS: dict[str, _Trad] = {
         "ligne bancaire non classée (ancien import)", "lignes bancaires non classées (ancien import)",
         "Une ligne bancaire non classée interdit la clôture.", "Classer les lignes",
         "/banques-caisse/a-classer"),
-    "MENAGE_EXTERNE_ECART_HOSTAWAY": _Trad(
-        "ménage facturé non rapproché des ménages Hostaway",
-        "ménages facturés non rapprochés des ménages Hostaway",
-        "Le nombre de ménages facturés ne correspond pas à celui d'Hostaway.",
-        "Rapprocher les ménages", "/menages?mois={mois}&ecart_seul=true"),
-    "MENAGE_EXTERNE_LOGEMENT_HORS_HA": _Trad(
-        "logement facturé absent du comptage Hostaway", "logements facturés absents du comptage Hostaway",
-        "Des ménages sont facturés pour un logement qu'Hostaway ne connaît pas ce mois-ci.",
-        "Rapprocher les ménages", "/menages?mois={mois}&ecart_seul=true"),
+    "MENAGE_EXTERNE_RAPPROCHE_HOSTAWAY": _Trad(
+        "logement dont les ménages facturés correspondent à Hostaway",
+        "logements dont les ménages facturés correspondent à Hostaway",
+        "Le volume mensuel est cohérent : rien à faire."),
+    "MENAGE_HA_SANS_FACTURE_EXTERNE": _Trad(
+        "logement avec des ménages Hostaway sans facture externe",
+        "logements avec des ménages Hostaway sans facture externe",
+        "Probablement des ménages internes : à croiser avec les déclarations."),
     "SOURCE_SHEET_CACHE_UTILISE": _Trad(
         "déclaration de ménage lue dans une copie locale", "déclarations de ménage lues dans une copie locale",
         "La dernière lecture du Google Sheet n'est pas à jour.", "Actualiser les ménages", "/menages"),
@@ -317,6 +321,8 @@ TRADUCTIONS: dict[str, _Trad] = {
 
 _TRAD_DEFAUT = _Trad("contrôle automatique à traiter", "contrôles automatiques à traiter",
                      "Le moteur de contrôle a relevé une anomalie sur ce mois.", "Voir le contrôle")
+_TRAD_INFO_DEFAUT = _Trad("information du moteur de contrôle", "informations du moteur de contrôle",
+                          "Information du moteur : elle ne bloque pas la clôture.", "Voir le contrôle")
 
 
 def _element_item(e: dict[str, Any], noms: _Noms, mois: str) -> dict[str, Any]:
@@ -353,13 +359,12 @@ def _ajouter_controles_moteur(par: dict[str, dict[str, list]], mois: str, elemen
         if e["etat"]["anomalie_moteur_presente"] and not e["etat"]["exception_active"]:
             blocs.setdefault((domaine, e["code"], False), []).append(e)
     for (domaine, code, info), els in blocs.items():
-        trad = TRADUCTIONS.get(code, _TRAD_DEFAUT)
+        trad = TRADUCTIONS.get(code, _TRAD_INFO_DEFAUT if info else _TRAD_DEFAUT)
         items = [_element_item(e, noms, mois) for e in els]
         lien = trad.lien.format(mois=mois) if trad.lien else (items[0]["lien"] if items else "")
         if info:
             par[domaine]["informatifs"].append(_groupe(
-                code, trad.singulier, trad.pluriel, items,
-                pourquoi="Information du moteur : elle ne bloque pas la clôture.", action="Voir",
+                code, trad.singulier, trad.pluriel, items, pourquoi=trad.pourquoi, action="Voir",
                 lien=lien))
         else:
             par[domaine]["bloqueurs"].append(_groupe(
@@ -482,8 +487,27 @@ def _charges(par, mois: str, noms: _Noms, db_path) -> None:
         action="Contrôler les charges", lien=f"/flux-financiers/charges?mois={quote(mois)}&statut_controle=A_CONTROLER"))
 
 
-_CODES_GESTION = ("GESTION_LOGEMENT_MISSING", "GESTION_LOGEMENT_OUT_OF_PERIOD",
-                  "GESTION_LOGEMENT_AMBIGUOUS", "GESTION_LOGEMENT_MISSING_OWNER")
+#: Les quatre façons dont un séjour peut ne pas trouver son propriétaire (`resolve_management_period`), chacune
+#: dite pour ce qu'elle est : ce que l'utilisateur doit corriger n'est pas la même chose.
+_GESTION_TEXTES = {
+    "GESTION_LOGEMENT_MISSING": (
+        "séjour hors période de gestion", "séjours hors période de gestion",
+        "Aucun propriétaire n'est en gestion à ses dates : le séjour est exclu du calcul et des factures. "
+        "Vérifier la période de gestion du logement (réactivation, changement de propriétaire)."),
+    "GESTION_LOGEMENT_OUT_OF_PERIOD": (
+        "séjour à cheval sur la fin de gestion", "séjours à cheval sur la fin de gestion",
+        "Le séjour commence pendant la gestion et se termine après sa fin : le propriétaire des dernières "
+        "nuits n'est pas défini, le séjour est exclu du calcul et des factures. Ajuster la date de fin de "
+        "gestion du logement (Administration → Référentiels)."),
+    "GESTION_LOGEMENT_AMBIGUOUS": (
+        "séjour couvert par deux périodes de gestion", "séjours couverts par deux périodes de gestion",
+        "Deux périodes de gestion se chevauchent à ses dates : on ne sait pas à quel propriétaire l'attribuer. "
+        "Corriger l'historique de gestion du logement."),
+    "GESTION_LOGEMENT_MISSING_OWNER": (
+        "séjour sur une période de gestion sans propriétaire", "séjours sur une période de gestion sans propriétaire",
+        "La période de gestion de ses dates n'a pas de propriétaire : le renseigner dans l'historique de gestion."),
+}
+_CODES_GESTION = tuple(_GESTION_TEXTES)
 
 
 def _reservations_hors_gestion(par, mois: str, noms: _Noms, db_path) -> None:
@@ -516,18 +540,17 @@ def _reservations_hors_gestion(par, mois: str, noms: _Noms, db_path) -> None:
     gestion = [r for r in rows if r["code_anomalie"] in _CODES_GESTION]
     non_mappes = [r for r in rows if r["code_anomalie"] == "LOGEMENT_NON_MAPPE"]
     statut = [r for r in rows if r["code_anomalie"] == "STATUT_PARC_INVALIDE"]
-    if gestion:
+    for code, (singulier, pluriel, pourquoi) in _GESTION_TEXTES.items():
+        concernes = [r for r in gestion if r["code_anomalie"] == code]
+        if not concernes:
+            continue
         items = [_item(noms.logement(r["logement_id"]), detail=_du_au(r["date_arrivee"], r["date_depart"]),
                        montant=r["montant_retenu"] if isinstance(r["montant_retenu"], (int, float)) else None,
                        lien=f"/logements/{quote(_txt(r['logement_id']))}", lien_libelle="Voir la gestion")
-                 for r in gestion]
+                 for r in concernes]
         par[RESERVATIONS]["bloqueurs"].append(_groupe(
-            "SEJOUR_HORS_GESTION", "séjour hors période de gestion", "séjours hors période de gestion",
-            items,
-            pourquoi="Sans propriétaire en gestion à ses dates, un séjour est exclu du calcul et des "
-                     "factures. Vérifier la période de gestion du logement (réactivation, changement "
-                     "de propriétaire).",
-            action="Vérifier la gestion", lien=items[0]["lien"]))
+            "SEJOUR_" + code, singulier, pluriel, items, pourquoi=pourquoi, action="Vérifier la gestion",
+            lien=items[0]["lien"]))
     if non_mappes:
         items = [_item("Annonce sans logement", detail=_du_au(r["date_arrivee"], r["date_depart"]),
                        lien="/correspondances-logement", lien_libelle="Établir la correspondance")
@@ -579,6 +602,60 @@ def _calculs_obsoletes(par, db_path) -> None:
             f"CALCUL:{nom}", "calcul à actualiser", "calculs à actualiser",
             [_item(libelle, detail=raison, lien="/actualisation", lien_libelle="Actualiser")],
             pourquoi=raison, action="Actualiser", lien="/actualisation"))
+
+
+def _entier(v: Any) -> int:
+    try:
+        return int(round(float(v)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _detail_menage(v: dict[str, Any]) -> str:
+    """Pourquoi une ligne du module Ménages est « à contrôler », en deux faits chiffrés."""
+    morceaux = []
+    if v.get("identification_incomplete"):
+        morceaux.append("intervenant ou logement à identifier")
+    realises, declares = _entier(v.get("hostaway_realise")), _entier(v.get("total_declares"))
+    if v.get("ecart") or realises != declares:
+        morceaux.append(f"{_pluriel(realises, 'ménage réalisé', 'ménages réalisés')} chez Hostaway, "
+                        f"{_pluriel(declares, 'déclaré ou facturé', 'déclarés ou facturés')}")
+    return " · ".join(morceaux)
+
+
+def _menages_a_controler(par, mois: str, noms: _Noms, db_path) -> None:
+    """Ménages : les lignes que le module Ménages lui-même dit « à contrôler ».
+
+    Même critère que la carte « À CONTRÔLER » de l'écran Ménages (`menages_service.a_controler`). Une
+    ligne dont l'écart a été JUSTIFIÉ (outrepassé, avec son motif) ou validée n'est plus un bloqueur : la
+    décision se prend dans le module, et c'est elle qui compte — pas le constat du moteur, qui continue de
+    signaler l'écart brut. Le bloqueur disparaît donc de lui-même quand la ligne est justifiée."""
+    from app.services import menages_service as men
+
+    try:
+        lignes = men.lignes_a_controler(mois, db_path=db_path)
+    except Exception:       # noqa: BLE001 — une lecture qui échoue ne se tait jamais : le module est à revoir
+        par[MENAGES]["bloqueurs"].append(_groupe(
+            "MENAGES_ILLISIBLES", "lecture des ménages impossible", "lectures des ménages impossibles",
+            [_item("Ménages du mois", detail="La lecture a échoué", lien=f"/menages?mois={quote(mois)}",
+                   lien_libelle="Ouvrir")],
+            pourquoi="Sans lecture des ménages, on ne sait pas s'il reste un écart à contrôler.",
+            action="Ouvrir les ménages", lien=f"/menages?mois={quote(mois)}"))
+        return
+    if not lignes:
+        return
+    items = []
+    for v in lignes:
+        nom = _txt(v.get("nom_appartement")) or noms.logement(v.get("logement_id"))
+        intervenant = _txt(v.get("nom_intervenant"))
+        items.append(_item(f"{nom} — {intervenant}" if intervenant else nom, detail=_detail_menage(v),
+                           lien=f"/menages/{quote(mois)}/{quote(_txt(v.get('logement_id')))}/"
+                                f"{quote(_txt(v.get('intervenant_id')))}", lien_libelle="Ouvrir"))
+    par[MENAGES]["bloqueurs"].append(_groupe(
+        "MENAGE_A_CONTROLER", "ligne de ménages à contrôler", "lignes de ménages à contrôler", items,
+        pourquoi="Le nombre de ménages réalisés ne correspond pas à celui déclaré ou facturé, et l'écart "
+                 "n'est ni validé ni justifié.",
+        action="Contrôler les ménages", lien=f"/menages/a-controler?mois={quote(mois)}"))
 
 
 def _conflits_menages(par, mois: str, noms: _Noms, db_path) -> None:
@@ -775,6 +852,7 @@ def analyser(mois: str, *, elements: list[dict[str, Any]] | None = None,
     _charges(par, mois, noms, db_path)
     _reservations_hors_gestion(par, mois, noms, db_path)
     _calculs_obsoletes(par, db_path)
+    _menages_a_controler(par, mois, noms, db_path)
     _conflits_menages(par, mois, noms, db_path)
     _factures_clients(par, mois, noms, db_path)
     _factures_a_comptabiliser(par, mois, noms, db_path)
@@ -794,3 +872,409 @@ def analyser(mois: str, *, elements: list[dict[str, Any]] | None = None,
     return {"mois": mois, "modules": modules, "par_cle": {m["cle"]: m for m in modules},
             "nb_bloqueurs": sum(m["nb_bloqueurs"] for m in modules),
             "nb_informatifs": sum(m["nb_informatifs"] for m in modules)}
+
+
+# ══ Clôturer, rouvrir, tableau de bord ════════════════════════════════════════════════════════════
+#
+# L'état « clôturé » d'un module est le SEUL fait stocké (migration 0126). Il est vérifié contre le
+# réel à chaque affichage : un module clôturé dont un bloqueur est réapparu (donnée reçue après coup)
+# s'affiche « à rouvrir », il ne reste pas faussement vert.
+
+from datetime import datetime                                                      # noqa: E402
+
+ETAT_CLOS = "CLOS"
+ETAT_A_TRAITER = "A_TRAITER"
+ETAT_PRET = "PRET"
+ETAT_A_REVOIR = "A_REVOIR"
+LIBELLES_ETAT = {ETAT_CLOS: "Clôturé", ETAT_A_TRAITER: "À traiter", ETAT_PRET: "Prêt à clôturer",
+                 ETAT_A_REVOIR: "À rouvrir"}
+
+MSG_NON_DEMARREE = ("Démarrez d'abord la clôture du mois : les modules se clôturent une fois la "
+                    "clôture ouverte.")
+MSG_MOIS_ARCHIVE = ("Le mois est clôturé définitivement : ses modules ne se rouvrent plus. Une correction "
+                    "passe par la correction rétroactive, jamais par une réouverture.")
+
+
+def _maintenant() -> str:
+    """Heure LOCALE du poste, comme `clotures_service._now()` : c'est celle que l'utilisateur lit à
+    l'écran (« clôturé à 22h32 ») et rapproche de ses propres gestes."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _refus(message: str):
+    from app.services import clotures_service as cs
+    return cs.ClotureRefusee(message)
+
+
+def _module_connu(module: str) -> Module:
+    m = PAR_CLE.get(_txt(module).upper())
+    if m is None:
+        raise _refus("Module de clôture inconnu.")
+    return m
+
+
+def etats(mois: str, *, db_path=None) -> dict[str, dict[str, Any]]:
+    """État enregistré des modules d'un mois — {clé: ligne}. Table absente (base non migrée) : vide."""
+    conn = get_db(db_path)
+    try:
+        if "cloture_modules" not in _tables(conn):
+            return {}
+        return {r["module"]: dict(r) for r in conn.execute(
+            "SELECT * FROM cloture_modules WHERE mois = ?", (_txt(mois)[:7],))}
+    finally:
+        conn.close()
+
+
+def _periode_comptable_rouverte(mois: str, db_path) -> bool:
+    """Le verrou de la Comptabilité est la PÉRIODE COMPTABLE : si elle n'est plus clôturée (rouverte
+    depuis l'écran de comptabilité), le module n'est plus réellement verrouillé."""
+    from app.services import comptabilite_periodes_service as per
+
+    return not per.est_fermee(mois, db_path)
+
+
+def modules_non_clos(mois: str, *, db_path=None) -> list[str]:
+    """Clés des modules qui ne sont PAS clôturés pour ce mois (dans l'ordre d'affichage).
+
+    Un module est clôturé quand sa clôture est enregistrée ET que son verrou tient encore : la
+    Comptabilité, dont le verrou est la période comptable, ne l'est plus si cette période a été
+    rouverte depuis. C'est le même critère que le tableau de bord — la clôture du mois côté serveur
+    ne peut pas être plus indulgente que ce que l'écran affiche."""
+    enregistres = etats(mois, db_path=db_path)
+    restants = [m.cle for m in MODULES if enregistres.get(m.cle, {}).get("statut") != "CLOS"]
+    if COMPTABILITE not in restants and _periode_comptable_rouverte(mois, db_path):
+        restants.append(COMPTABILITE)
+    return [m.cle for m in MODULES if m.cle in restants]
+
+
+def historique(mois: str, module: str = "", *, db_path=None) -> list[dict[str, Any]]:
+    """Journal des clôtures et réouvertures de modules, du plus récent au plus ancien."""
+    conn = get_db(db_path)
+    try:
+        if "cloture_modules_evenements" not in _tables(conn):
+            return []
+        sql, params = "SELECT * FROM cloture_modules_evenements WHERE mois = ?", [_txt(mois)[:7]]
+        if module:
+            sql, params = sql + " AND module = ?", params + [module]
+        rows = [dict(r) for r in conn.execute(sql + " ORDER BY id DESC", params)]
+    finally:
+        conn.close()
+    for r in rows:
+        m = PAR_CLE.get(r["module"])
+        r["module_libelle"] = m.libelle if m else r["module"]
+    return rows
+
+
+def _garde_cloture_demarree(cloture: dict[str, Any], *, ouvrir: bool) -> None:
+    """La clôture du mois est démarrée et le mois n'est pas définitivement clôturé."""
+    from app.services import clotures_service as cs
+
+    statut = cloture["statut"]
+    if statut == cs.ST_ARCHIVEE:
+        raise _refus(MSG_MOIS_ARCHIVE if ouvrir else cs.MSG_DEJA_ARCHIVEE)
+    if statut == cs.ST_NON_DEMARREE:
+        raise _refus(MSG_NON_DEMARREE)
+
+
+def _cloturer_periode_comptable(mois: str, *, acteur: str, commentaire: str, db_path=None) -> None:
+    """Clôturer le module Comptabilité = clôturer la PÉRIODE COMPTABLE du mois — le verrou que le
+    moteur d'écritures respecte déjà. Ses étapes (en contrôle, validée, clôturée) sont enchaînées par
+    le service existant, jamais contournées : il refuse lui-même une période aux contrôles bloquants."""
+    from app.services import comptabilite_periodes_service as per
+
+    if not per._flags_actifs():
+        raise _refus("L'écriture comptable est désactivée sur cette installation : la période "
+                     "comptable ne peut pas être clôturée.")
+    periode = per.charger(mois, db_path)
+    statut = periode["statut"] if periode else per.ST_OUVERTE
+    if statut == per.ST_CLOTUREE:
+        return
+    etapes = []
+    if statut == per.ST_OUVERTE:
+        etapes.append(lambda: per.passer_en_controle(mois, acteur=acteur, db_path=db_path))
+    elif statut == per.ST_ROUVERTE:
+        etapes.append(lambda: per.rouvrir_pour_controle(mois, acteur=acteur, db_path=db_path))
+    if statut in (per.ST_OUVERTE, per.ST_ROUVERTE, per.ST_EN_CONTROLE):
+        etapes.append(lambda: per.valider(mois, acteur=acteur, db_path=db_path))
+    etapes.append(lambda: per.cloturer(mois, acteur=acteur, commentaire=commentaire, db_path=db_path))
+    for etape in etapes:
+        res = etape()
+        if not res.get("ok"):
+            raise _refus(res.get("message") or "La période comptable n'a pas pu être clôturée.")
+
+
+def cloturer_module(cloture: dict[str, Any], module: str, *, acteur: str = "", commentaire: str = "",
+                    db_path=None) -> dict[str, Any]:
+    """Clôture UN module du mois. Refuse — message métier, jamais une erreur SQL — si :
+    la clôture n'est pas démarrée ou le mois est clôturé définitivement ; le mois n'est pas terminé
+    (courant et futur ne se clôturent jamais) ; le module est déjà clôturé ; un bloqueur subsiste
+    (RECALCULÉ ici, depuis les vrais modules, quelle que soit l'interface).
+
+    Effet réel : le module est VERROUILLÉ — ses services refusent leurs écritures sur le mois (voir
+    `cloture_verrous_service`) ; pour la Comptabilité, la période comptable est clôturée. Date, heure,
+    acteur et résumé sont tracés, en ajout seul."""
+    from app.services import clotures_service as cs
+
+    m = _module_connu(module)
+    mois = cloture["mois"]
+    _garde_cloture_demarree(cloture, ouvrir=False)
+    refus_temporel = cs.refus_temporel(mois)
+    if refus_temporel:
+        raise _refus(refus_temporel)
+    if etats(mois, db_path=db_path).get(m.cle, {}).get("statut") == "CLOS":
+        raise _refus(f"Le module « {m.libelle} » est déjà clôturé pour {cs.mois_fr(mois)}.")
+
+    def _controler() -> dict[str, Any]:
+        analyse = analyser(mois, db_path=db_path)["par_cle"][m.cle]
+        if analyse["nb_bloqueurs"]:
+            n = analyse["nb_bloqueurs"]
+            raise _refus(f"Le module « {m.libelle} » ne peut pas être clôturé : {n} bloqueur"
+                         f"{'s' if n > 1 else ''} reste{'nt' if n > 1 else ''} à traiter.")
+        return analyse
+
+    _controler()
+    if m.cle == COMPTABILITE:
+        _cloturer_periode_comptable(mois, acteur=acteur, commentaire=commentaire, db_path=db_path)
+
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        actuelle = conn.execute("SELECT statut FROM clotures_mensuelles WHERE cloture_id_opaque = ? "
+                                "AND actif = 1", (cloture["cloture_id_opaque"],)).fetchone()
+        if actuelle is None:
+            raise _refus("Clôture introuvable.")
+        _garde_cloture_demarree({"statut": actuelle["statut"]}, ouvrir=False)
+        analyse = _controler()                       # relu sous verrou d'écriture : aucune course
+        existant = conn.execute("SELECT statut FROM cloture_modules WHERE mois = ? AND module = ?",
+                                (mois, m.cle)).fetchone()
+        if existant is not None and existant["statut"] == "CLOS":
+            raise _refus(f"Le module « {m.libelle} » est déjà clôturé pour {cs.mois_fr(mois)}.")
+        maintenant = _maintenant()
+        conn.execute(
+            "INSERT INTO cloture_modules (mois, module, cloture_id_opaque, statut, date_cloture, "
+            "acteur_cloture, commentaire_cloture, nb_clotures) VALUES (?,?,?,'CLOS',?,?,?,1) "
+            "ON CONFLICT(mois, module) DO UPDATE SET statut = 'CLOS', "
+            "cloture_id_opaque = excluded.cloture_id_opaque, date_cloture = excluded.date_cloture, "
+            "acteur_cloture = excluded.acteur_cloture, "
+            "commentaire_cloture = excluded.commentaire_cloture, nb_clotures = nb_clotures + 1",
+            (mois, m.cle, cloture["cloture_id_opaque"], maintenant, acteur, commentaire))
+        n_info = analyse["nb_informatifs"]
+        resume = "Aucun bloqueur" + (f" ; {n_info} information{'s' if n_info > 1 else ''} ne "
+                                     f"bloque{'nt' if n_info > 1 else ''} pas" if n_info else "")
+        conn.execute(
+            "INSERT INTO cloture_modules_evenements (mois, module, cloture_id_opaque, type_evenement, "
+            "ancien_statut, nouveau_statut, commentaire, resume, date_evenement, acteur) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (mois, m.cle, cloture["cloture_id_opaque"], "CLOTURE_MODULE",
+             existant["statut"] if existant else None, "CLOS", commentaire, resume, maintenant, acteur))
+        cs._journaliser_evenement(conn, cloture["cloture_id_opaque"], "MODULE_CLOTURE", None, None,
+                                  commentaire=f"{m.libelle} : clôturé. {resume}.", acteur=acteur,
+                                  date_evenement=maintenant)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return etats(mois, db_path=db_path)[m.cle]
+
+
+def rouvrir_module(cloture: dict[str, Any], module: str, *, acteur: str = "", justification: str = "",
+                   db_path=None) -> dict[str, Any]:
+    """Rouvre un module clôturé — explicite, justifié, tracé. Jamais une suppression : la clôture
+    d'origine reste dans le journal (date, acteur), la réouverture s'y ajoute.
+
+    Si la clôture du mois avait déjà été validée (A_VALIDER, VALIDEE), elle revient en préparation : un
+    mois dont un module est rouvert n'est plus « prêt ». Un mois clôturé DÉFINITIVEMENT ne se rouvre
+    pas (contrat existant : correction rétroactive)."""
+    from app.services import clotures_service as cs
+
+    m = _module_connu(module)
+    mois = cloture["mois"]
+    if not _txt(justification):
+        raise _refus("Une justification est obligatoire pour rouvrir un module clôturé.")
+    _garde_cloture_demarree(cloture, ouvrir=True)
+    if etats(mois, db_path=db_path).get(m.cle, {}).get("statut") != "CLOS":
+        raise _refus(f"Le module « {m.libelle} » n'est pas clôturé : rien à rouvrir.")
+
+    if m.cle == COMPTABILITE:
+        from app.services import comptabilite_periodes_service as per
+        if per.est_fermee(mois, db_path):
+            res = per.rouvrir(mois, justification=justification, acteur=acteur, db_path=db_path)
+            if not res.get("ok"):
+                raise _refus(res.get("message") or "La période comptable n'a pas pu être rouverte.")
+
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        actuelle = conn.execute("SELECT * FROM clotures_mensuelles WHERE cloture_id_opaque = ? "
+                                "AND actif = 1", (cloture["cloture_id_opaque"],)).fetchone()
+        if actuelle is None:
+            raise _refus("Clôture introuvable.")
+        actuelle = dict(actuelle)
+        _garde_cloture_demarree(actuelle, ouvrir=True)
+        maintenant = _maintenant()
+        cur = conn.execute(
+            "UPDATE cloture_modules SET statut = 'ROUVERT', date_reouverture = ?, "
+            "acteur_reouverture = ?, justification_reouverture = ?, nb_reouvertures = nb_reouvertures + 1 "
+            "WHERE mois = ? AND module = ? AND statut = 'CLOS'",
+            (maintenant, acteur, justification, mois, m.cle))
+        if cur.rowcount != 1:
+            raise _refus(f"Le module « {m.libelle} » a changé d'état entretemps : rechargez la page.")
+        conn.execute(
+            "INSERT INTO cloture_modules_evenements (mois, module, cloture_id_opaque, type_evenement, "
+            "ancien_statut, nouveau_statut, commentaire, resume, date_evenement, acteur) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (mois, m.cle, cloture["cloture_id_opaque"], "REOUVERTURE_MODULE", "CLOS", "ROUVERT",
+             justification, "Module rouvert", maintenant, acteur))
+        cs._journaliser_evenement(conn, cloture["cloture_id_opaque"], "MODULE_ROUVERT", None, None,
+                                  commentaire=f"{m.libelle} : rouvert. {justification}", acteur=acteur,
+                                  date_evenement=maintenant)
+        # Une clôture déjà validée ne l'est plus : elle repasse en préparation, par son automate.
+        courante = actuelle
+        if courante["statut"] == cs.ST_VALIDEE:
+            courante = cs._transition(courante, cs.ST_ROUVERTE, acteur=acteur,
+                                      justification=f"Module {m.libelle} rouvert : {justification}",
+                                      conn=conn, extra_cols={"date_reouverture": cs._now(),
+                                                             "justification_reouverture": justification})
+        if courante["statut"] in (cs.ST_ROUVERTE, cs.ST_A_VALIDER):
+            cs._transition(courante, cs.ST_EN_PREPARATION, acteur=acteur,
+                           justification=f"Module {m.libelle} rouvert : {justification}", conn=conn)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return etats(mois, db_path=db_path)[m.cle]
+
+
+def _horodatage_fr(valeur: Any) -> str:
+    """« 2026-09-11 22:32:10 » → « 11/09/2026 à 22h32 ». Une date seule reste une date."""
+    s = _txt(valeur).replace("T", " ").replace("Z", "")
+    if not s:
+        return ""
+    jour = _date_fr(s[:10])
+    heure = s[11:16]
+    return f"{jour} à {heure.replace(':', 'h')}" if len(heure) == 5 else jour
+
+
+def _etat_de_la_cloture(statut: str) -> tuple[str, str]:
+    """Où en est la clôture du mois, en deux mots — (clé, libellé) pour le bandeau de synthèse."""
+    from app.services import clotures_service as cs
+
+    if statut == cs.ST_NON_DEMARREE:
+        return "NON_DEMARREE", "Clôture non démarrée"
+    if statut == cs.ST_ARCHIVEE:
+        return "CLOTURE", "Mois clôturé"
+    if statut == cs.ST_VALIDEE:
+        return "VALIDEE", "Clôture validée"
+    return "EN_COURS", "Clôture en cours"
+
+
+def _cloture_du_mois(cloture: dict[str, Any], db_path) -> dict[str, str]:
+    """Quand et par qui le MOIS a été clôturé définitivement (dernière transition vers ARCHIVEE)."""
+    from app.services import clotures_service as cs
+
+    if not cloture.get("cloture_id_opaque"):
+        return {"date": "", "acteur": ""}
+    for e in cs.historique(cloture["cloture_id_opaque"], db_path):
+        if e.get("type_evenement") == "TRANSITION" and e.get("nouveau_statut") == cs.ST_ARCHIVEE:
+            return {"date": _horodatage_fr(e.get("date_evenement")), "acteur": _txt(e.get("acteur"))}
+    return {"date": "", "acteur": ""}
+
+
+def tableau_de_bord(cloture: dict[str, Any], *, progression: dict[str, Any] | None = None,
+                    db_path=None) -> dict[str, Any]:
+    """Le tableau de bord d'un mois : pour chaque module, son état, ses bloqueurs, ses actions
+    possibles — et la possibilité de clôturer le mois entier. Tout est recalculé ; seul l'état
+    « clôturé » (date, acteur) vient de la base.
+
+    `cloture` peut être une clôture pas encore créée (`{"mois": …, "statut": "NON_DEMARREE"}`) : la page
+    d'un mois montre alors ses bloqueurs avant même qu'on ait démarré la clôture."""
+    from app.services import clotures_service as cs
+
+    mois = cloture["mois"]
+    prog = progression or cs.calcul_progression(mois, db_path)
+    enregistres = etats(mois, db_path=db_path)
+    refus_temporel = prog["refus_temporel"]
+    demarree = cloture["statut"] != cs.ST_NON_DEMARREE
+    archivee = cloture["statut"] == cs.ST_ARCHIVEE
+
+    modules = []
+    for m in prog["modules"]["modules"]:
+        p = enregistres.get(m["cle"]) or {}
+        clos = p.get("statut") == "CLOS"
+        periode_rouverte = (m["cle"] == COMPTABILITE and clos and not archivee
+                            and _periode_comptable_rouverte(mois, db_path))
+        if archivee or (clos and not m["nb_bloqueurs"] and not periode_rouverte):
+            etat = ETAT_CLOS
+        elif clos:
+            etat = ETAT_A_REVOIR
+        elif m["nb_bloqueurs"]:
+            etat = ETAT_A_TRAITER
+        else:
+            etat = ETAT_PRET
+        n = m["nb_bloqueurs"]
+        if etat == ETAT_A_REVOIR:
+            motif = (f"{n} élément{'s' if n > 1 else ''} à traiter {'sont apparus' if n > 1 else 'est apparu'} "
+                     "depuis la clôture : rouvrez le module pour le traiter." if n else
+                     "La période comptable a été rouverte depuis la clôture de ce module.")
+        elif archivee or clos:
+            motif = ""
+        elif n:
+            motif = f"{n} bloqueur{'s' if n > 1 else ''} à traiter avant de clôturer ce module."
+        elif not demarree:
+            motif = "Disponible une fois la clôture démarrée."
+        elif refus_temporel:
+            # Le motif complet (« le mois est encore en cours… ») est dit UNE fois, dans la synthèse.
+            motif = "Possible une fois le mois terminé."
+        else:
+            motif = ""
+        modules.append({
+            **m, "etat": etat, "etat_libelle": LIBELLES_ETAT[etat],
+            "date_cloture": p.get("date_cloture") or "" if clos else "",
+            "date_cloture_fr": _horodatage_fr(p.get("date_cloture")) if clos else "",
+            "acteur_cloture": p.get("acteur_cloture") or "" if clos else "",
+            "commentaire_cloture": p.get("commentaire_cloture") or "" if clos else "",
+            "date_reouverture": p.get("date_reouverture") or "",
+            "date_reouverture_fr": _horodatage_fr(p.get("date_reouverture")),
+            "acteur_reouverture": p.get("acteur_reouverture") or "",
+            "justification_reouverture": p.get("justification_reouverture") or "",
+            "nb_reouvertures": p.get("nb_reouvertures") or 0,
+            "peut_cloturer": (not archivee and demarree and not refus_temporel and not clos and not n),
+            "peut_rouvrir": (not archivee and clos), "motif_indisponible": motif,
+        })
+    nb_total = len(modules)
+    nb_clos = sum(1 for m in modules if m["etat"] == ETAT_CLOS)
+    restants = [m["libelle"] for m in modules if m["etat"] != ETAT_CLOS]
+    if archivee:
+        motif_mois = cs.MSG_DEJA_ARCHIVEE
+    elif not demarree:
+        motif_mois = MSG_NON_DEMARREE
+    elif refus_temporel:
+        motif_mois = refus_temporel
+    elif restants:
+        k = len(restants)
+        motif_mois = (f"{k} module{'s' if k > 1 else ''} {'restent' if k > 1 else 'reste'} à clôturer"
+                      + (" : " + ", ".join(restants) if k <= 3 else "") + ".")
+    elif prog["nb_bloqueurs"]:
+        motif_mois = cs.message_bloquants(prog["nb_bloqueurs"])
+    else:
+        motif_mois = ""
+    cle_etat, libelle_etat = _etat_de_la_cloture(cloture["statut"])
+    finale = _cloture_du_mois(cloture, db_path) if archivee else {"date": "", "acteur": ""}
+    return {
+        "mois": mois, "mois_fr": prog["mois_fr"], "modules": modules,
+        "nb_clos": nb_clos, "nb_total": nb_total,
+        "nb_prets": sum(1 for m in modules if m["etat"] == ETAT_PRET),
+        "nb_a_traiter": sum(1 for m in modules if m["etat"] in (ETAT_A_TRAITER, ETAT_A_REVOIR)),
+        "progression_libelle": f"{nb_clos} / {nb_total} modules clôturés",
+        "statut": cloture["statut"], "etat_cloture": cle_etat, "etat_cloture_libelle": libelle_etat,
+        "temporalite": prog["temporalite"], "refus_temporel": refus_temporel, "demarree": demarree,
+        "mois_clos": archivee, "peut_cloturer_mois": not archivee and not motif_mois,
+        "motif_mois": motif_mois, "nb_bloqueurs": prog["nb_bloqueurs"],
+        "nb_informatifs": prog["modules"]["nb_informatifs"],
+        "date_cloture_mois_fr": finale["date"], "acteur_cloture_mois": finale["acteur"],
+        "ouverte_le_fr": _date_fr(cloture.get("date_creation")),
+    }

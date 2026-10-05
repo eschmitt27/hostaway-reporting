@@ -122,6 +122,14 @@ def message_bloquants(nb: int) -> str:
             f"bloquant{'s' if pluriel else ''} reste{'nt' if pluriel else ''} à traiter.")
 
 
+def message_modules_ouverts(cles: list[str]) -> str:
+    """« Tous les modules doivent être clôturés… » — dit lesquels restent ouverts, par leur nom."""
+    from app.services import cloture_modules_service as cm
+    noms = ", ".join(f"« {cm.PAR_CLE[c].libelle} »" for c in cles if c in cm.PAR_CLE)
+    return ("Le mois ne peut pas être clôturé : tous les modules doivent d'abord l'être. "
+            f"Il reste à clôturer : {noms}.")
+
+
 def _txt(v: Any) -> str:
     return "" if v is None else str(v).strip()
 
@@ -278,7 +286,13 @@ def _garde_cloture(cloture: dict, db_path=None) -> dict[str, Any]:
 # ── Création / transition ────────────────────────────────────────────────────
 
 def _journaliser_evenement(conn, cloture_opaque, type_evt, ancien, nouveau, commentaire="",
-                           preuve="", acteur=""):
+                           preuve="", acteur="", date_evenement=None):
+    if date_evenement:
+        conn.execute(
+            "INSERT INTO cloture_evenements (cloture_id_opaque, type_evenement, ancien_statut, "
+            "nouveau_statut, commentaire, preuve, acteur, date_evenement) VALUES (?,?,?,?,?,?,?,?)",
+            (cloture_opaque, type_evt, ancien, nouveau, commentaire, preuve, acteur, date_evenement))
+        return
     conn.execute(
         "INSERT INTO cloture_evenements (cloture_id_opaque, type_evenement, ancien_statut, "
         "nouveau_statut, commentaire, preuve, acteur) VALUES (?,?,?,?,?,?,?)",
@@ -470,6 +484,7 @@ def archiver(cloture: dict, *, acteur: str = "", commentaire: str = "", version_
             raise ClotureRefusee(MSG_NON_VALIDEE)
         if version_attendue is not None and int(version_attendue) != actuelle["version"]:
             raise ClotureRefusee(MSG_ETAT_PERIME)
+        _exiger_modules_clos(mois, db_path)
         progression = calcul_progression(mois, db_path)
         if not progression["cloturable"]:
             raise ClotureRefusee(message_bloquants(progression["nb_bloqueurs"]))
@@ -481,6 +496,85 @@ def archiver(cloture: dict, *, acteur: str = "", commentaire: str = "", version_
             (mois, "CLOTURE", f"CLOTURE_APP-{acteur or 'SYSTEME'}"))
         resultat = _transition(cloture, ST_ARCHIVEE, acteur=acteur, commentaire=commentaire,
                                conn=conn)
+        _journaliser_evenement(conn, cloture["cloture_id_opaque"], "CONTROLES", None, None,
+                               commentaire=_resume_controles(progression), acteur=acteur)
+        conn.commit()
+        return resultat
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _exiger_modules_clos(mois: str, db_path=None) -> None:
+    """Le mois entier ne se clôture que si TOUS ses modules l'ont été — règle posée par la clôture
+    par modules, tenue ici pour TOUS les chemins qui mènent à la clôture définitive."""
+    from app.services import cloture_modules_service as cm
+    restants = cm.modules_non_clos(mois, db_path=db_path)
+    if restants:
+        raise ClotureRefusee(message_modules_ouverts(restants))
+
+
+def cloturer_mois(cloture: dict, *, acteur: str = "", commentaire: str = "", version_attendue=None,
+                  db_path=None):
+    """CLÔTURE DU MOIS ENTIER — la décision finale de la clôture par modules.
+
+    Exige, sous verrou d'écriture et dans cet ordre : un mois terminé (le courant et les futurs ne se
+    clôturent jamais), une clôture démarrée et non déjà définitive, l'état affiché encore actuel,
+    TOUS les modules clôturés, puis aucun bloqueur réel (recalculés, jamais copiés). Alors seulement,
+    en UNE transaction : les étapes d'automate qui restent (à valider, validée — la validation est ici
+    portée par la clôture de chaque module), l'archive économique du mois, `ref_cloture_mensuelle` à
+    CLOTURE, la clôture à ARCHIVEE et la trace des contrôles. Au moindre refus : rien n'est appliqué.
+
+    Cette décision est une décision humaine unique et confirmée (page de confirmation à case cochée) :
+    chaque module a déjà été clôturé par un geste distinct, c'est ce qui remplace la validation
+    intermédiaire des clôtures d'avant (VALIDEE), conservée pour celles qui y sont déjà."""
+    from app.services import cloture_archivage_service as arch
+
+    mois = cloture["mois"]
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        refus = refus_temporel(mois)
+        if refus:
+            raise ClotureRefusee(refus)
+        actuelle = _row(conn.execute("SELECT * FROM clotures_mensuelles WHERE cloture_id_opaque=? "
+                                     "AND actif=1", (cloture["cloture_id_opaque"],)).fetchone())
+        if actuelle is None:
+            raise ClotureRefusee("Clôture introuvable.")
+        if actuelle["statut"] == ST_ARCHIVEE:
+            raise ClotureRefusee(MSG_DEJA_ARCHIVEE)
+        if actuelle["statut"] == ST_NON_DEMARREE:
+            raise ClotureRefusee("Démarrez d'abord la clôture du mois.")
+        if version_attendue is not None and int(version_attendue) != actuelle["version"]:
+            raise ClotureRefusee(MSG_ETAT_PERIME)
+        _exiger_modules_clos(mois, db_path)
+        progression = calcul_progression(mois, db_path)
+        if not progression["cloturable"]:
+            raise ClotureRefusee(message_bloquants(progression["nb_bloqueurs"]))
+
+        courante = actuelle
+        if courante["statut"] == ST_ROUVERTE:
+            courante = _transition(courante, ST_EN_PREPARATION, acteur=acteur, db_path=db_path,
+                                   conn=conn, commentaire="Clôture du mois")
+        if courante["statut"] == ST_EN_PREPARATION:
+            courante = _transition(courante, ST_A_VALIDER, acteur=acteur, db_path=db_path, conn=conn)
+            snapshot(courante, db_path=db_path, conn=conn)
+        if courante["statut"] == ST_A_VALIDER:
+            validation = commentaire.strip() or "Tous les modules sont clôturés : mois validé et clôturé."
+            courante = _transition(courante, ST_VALIDEE, acteur=acteur, commentaire=validation,
+                                   db_path=db_path, conn=conn,
+                                   extra_cols={"date_validation": _now(),
+                                               "commentaire_validation": validation,
+                                               "valide_par": acteur})
+        arch.archiver_mois(mois, acteur=acteur, conn=conn)
+        conn.execute(
+            "INSERT INTO ref_cloture_mensuelle (mois, statut_mois, import_id) VALUES (?,?,?) "
+            "ON CONFLICT(mois) DO UPDATE SET statut_mois='CLOTURE'",
+            (mois, "CLOTURE", f"CLOTURE_APP-{acteur or 'SYSTEME'}"))
+        resultat = _transition(courante, ST_ARCHIVEE, acteur=acteur, commentaire=commentaire,
+                               db_path=db_path, conn=conn)
         _journaliser_evenement(conn, cloture["cloture_id_opaque"], "CONTROLES", None, None,
                                commentaire=_resume_controles(progression), acteur=acteur)
         conn.commit()

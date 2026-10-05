@@ -221,6 +221,8 @@ EXPECTED_TABLES = {
     "ik_baremes",                                 # barèmes IK versionnés et administrables (0118)
     "ik_bareme_tranches",                         # tranches structurées d'un barème IK
     "ik_vehicules",                               # véhicules : cumul kilométrique annuel par véhicule
+    "cloture_modules",                            # clôture par module : état courant d'un (mois, module) (0126)
+    "cloture_modules_evenements",                 # journal en ajout seul des clôtures/réouvertures de modules
 }
 
 

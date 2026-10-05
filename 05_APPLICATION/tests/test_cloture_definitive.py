@@ -1,4 +1,7 @@
-"""Mission 33 — clôture définitive depuis l'interface (VALIDEE → ARCHIVEE, mois à CLOTURE).
+"""Mission 33 — clôture définitive depuis l'interface (mois ARCHIVEE, mois à CLOTURE).
+
+Depuis la clôture PAR MODULES, le mois ne se clôture que lorsque tous ses modules le sont (aide
+`clore_modules` ci-dessous) : la validation intermédiaire est portée par la clôture de chaque module.
 
 Données FICTIVES (base temporaire). Date du jour FIXÉE au 28/09/2026 : septembre 2026 est le mois
 courant, juillet 2026 un mois terminé, octobre 2026 un mois futur.
@@ -23,6 +26,7 @@ from app.db.connection import get_db
 from app.services import clotures_service as cs
 from app.services import comptabilite_ecritures_service as compta
 from app.services import flux_lettrage_service as lettrage
+from tests.aides_cloture_modules import clore_modules
 from tests.test_cloture_flux_financiers import _a_valider, _ecriture_proposee
 from tests.test_cloture_archivage_economique import db_avec_reservation  # noqa: F401
 from tests.test_flux_financiers import (ACTEUR, _charge, _importer, _mvt, _par_montant,  # noqa: F401
@@ -37,7 +41,10 @@ def jour(monkeypatch):
 
 
 def _validee(db, mois=PASSE):
-    return cs.valider(_a_valider(db, mois), acteur=ACTEUR, commentaire="contrôlé", db_path=db)
+    """Une clôture validée dont tous les modules sont clôturés : prête pour la clôture du mois."""
+    c = cs.valider(_a_valider(db, mois), acteur=ACTEUR, commentaire="contrôlé", db_path=db)
+    clore_modules(db, mois)
+    return c
 
 
 def _statut_ref(db, mois=PASSE):
@@ -64,21 +71,28 @@ def _statut(c):
 
 # ══ 1-4. Bouton, confirmation, POST ═══════════════════════════════════════════════════════════
 
-def test_01_02_bouton_absent_si_non_validee_present_si_validee_et_eligible(client, base):
+def test_01_02_bouton_absent_tant_que_des_modules_restent_ouverts_present_ensuite(client, base):
     c = _a_valider(base)
-    assert 'data-testid="bouton-cloture-definitive"' not in client.get(f"/clotures/{c['cloture_id_opaque']}").text
+    url = f"/clotures/{c['cloture_id_opaque']}"
+    assert 'data-testid="bouton-cloture-definitive"' not in client.get(url).text
     c = cs.valider(c, acteur=ACTEUR, commentaire="ok", db_path=base)
-    fiche = client.get(f"/clotures/{c['cloture_id_opaque']}").text
+    fiche = html.unescape(client.get(url).text)
+    assert 'data-testid="bouton-cloture-definitive"' not in fiche, "validée, mais ses modules sont ouverts"
+    assert "7 modules restent à clôturer" in fiche
+    clore_modules(base, PASSE)
+    fiche = html.unescape(client.get(url).text)
     assert 'data-testid="bouton-cloture-definitive"' in fiche
-    assert "Clôturer définitivement le mois" in html.unescape(fiche)
+    assert "Clôturer le mois" in fiche
 
 
 def test_02_bis_bouton_indisponible_si_bloqueur_apparu(client, base, verrous):
     c = _validee(base)
-    _ecriture_proposee(base)
+    _importer(base, [_mvt(33.0, date="2026-07-10")])      # Qonto continue d'être lu après la clôture
     fiche = html.unescape(client.get(f"/clotures/{c['cloture_id_opaque']}").text)
     assert 'data-testid="bouton-cloture-definitive"' not in fiche
-    assert "Clôture définitive indisponible : 1 élément(s) bloquant(s)" in fiche
+    # Le mouvement relève du module Banque, clôturé : il redevient « à rouvrir ».
+    assert "À rouvrir" in fiche and "1 module reste à clôturer : Banque et caisse." in fiche
+    assert 'data-testid="alerte-apres-validation"' in fiche
 
 
 def test_03_page_de_confirmation_n_ecrit_rien(client, base):
@@ -99,7 +113,7 @@ def test_04_12_13_14_post_definitif_reussi(client, base):
     assert _statut(c) == cs.ST_ARCHIVEE
     assert _statut_ref(base) == "CLOTURE"
     fiche = html.unescape(client.get(f"/clotures/{c['cloture_id_opaque']}").text)
-    assert "Clôturée définitivement" in fiche
+    assert "Mois clôturé" in fiche and "Clôturé définitivement" in fiche
     evts = cs.historique(c["cloture_id_opaque"])
     assert any(e["nouveau_statut"] == cs.ST_ARCHIVEE and e["commentaire"] == "juillet arrêté" for e in evts)
     assert evts[0]["type_evenement"] == "CONTROLES" and "0 bloquant(s) Flux" in evts[0]["commentaire"]
@@ -113,11 +127,23 @@ def test_04_bis_confirmation_obligatoire(client, base):
 
 # ══ 5-9. Le serveur refait tout ═══════════════════════════════════════════════════════════════
 
-def test_05_statut_non_validee_refuse(client, base):
-    c = _a_valider(base)
+def test_05_modules_ouverts_refuse(client, base):
+    c = cs.valider(_a_valider(base), acteur=ACTEUR, commentaire="ok", db_path=base)
     page = _post(client, c)
-    assert cs.MSG_NON_VALIDEE in page
-    assert _statut(c) == cs.ST_A_VALIDER and _statut_ref(base) is None, "jamais deux décisions en un clic"
+    assert "tous les modules doivent d'abord l'être" in page
+    assert _statut(c) == cs.ST_VALIDEE and _statut_ref(base) is None, "aucune clôture réelle posée"
+
+
+def test_05_bis_la_cloture_des_modules_porte_la_validation(client, base):
+    """Un mois en préparation dont tous les modules sont clôturés se clôture d'un seul geste confirmé :
+    les étapes de l'automate (à valider, validée) sont enchaînées par le service, tracées dans l'historique."""
+    c = _a_valider(base)
+    clore_modules(base, PASSE)
+    _post(client, c, commentaire="juillet arrêté")
+    assert _statut(c) == cs.ST_ARCHIVEE and _statut_ref(base) == "CLOTURE"
+    etapes = [e["nouveau_statut"] for e in reversed(cs.historique(c["cloture_id_opaque"]))
+              if e["type_evenement"] == "TRANSITION"]
+    assert etapes[-2:] == [cs.ST_VALIDEE, cs.ST_ARCHIVEE]
 
 
 def test_06_07_mois_courant_et_futur_refuses_meme_force(client, base):
@@ -146,7 +172,7 @@ def test_09_nouveau_bloqueur_entre_get_et_post_refuse(client, base, verrous):
     c = _validee(base)
     page = client.get(f"/clotures/{c['cloture_id_opaque']}/cloture-definitive").text
     assert 'data-testid="confirmer-cloture-definitive"' in page
-    _ecriture_proposee(base)                                # apparaît après l'affichage
+    _importer(base, [_mvt(33.0, date="2026-07-10")])        # apparaît après l'affichage
     assert "1 contrôle bloquant" in _post(client, c)
     assert _statut(c) == cs.ST_VALIDEE and _statut_ref(base) is None
 
@@ -164,12 +190,17 @@ def test_09_bis_etat_perime_refuse(client, base):
 # ══ 10-11. Écritures proposées ════════════════════════════════════════════════════════════════
 
 def test_10_11_ecriture_proposee_bloque_contrepassee_ne_bloque_plus(client, base, verrous):
-    c = _validee(base)
+    from app.services import cloture_modules_service as cm
+    c = cs.valider(_a_valider(base), acteur=ACTEUR, commentaire="contrôlé", db_path=base)
     opaque = _ecriture_proposee(base)
-    assert "1 contrôle bloquant" in _post(client, c)
+    # L'écriture proposée bloque le module Comptabilité : il ne se clôture pas, donc le mois non plus.
+    with pytest.raises(cs.ClotureRefusee, match="1 bloqueur reste à traiter"):
+        cm.cloturer_module(c, cm.COMPTABILITE, acteur=ACTEUR, db_path=base)
+    assert "tous les modules doivent d'abord l'être" in _post(client, c)
     # Le modèle distingue l'écriture devenue sans objet : elle se CONTREPASSE (statut CONTREPASSEE,
     # miroir VALIDEE) — mécanisme unique du projet. Elle cesse alors de bloquer.
     assert compta.contrepasser(opaque, commentaire="vente annulée (test)", acteur=ACTEUR)["ok"]
+    clore_modules(base, PASSE)
     _post(client, c)
     assert _statut(c) == cs.ST_ARCHIVEE and _statut_ref(base) == "CLOTURE"
 
@@ -262,6 +293,7 @@ def test_15_archive_economique_creee_par_la_route(db_avec_reservation):
     from app.main import app
     db = db_avec_reservation
     c = cs.valider(_a_valider(db, "2026-06"), acteur=ACTEUR, commentaire="ok", db_path=db)
+    clore_modules(db, "2026-06")
     _post(TestClient(app), c)
     conn = get_db(db)
     try:
@@ -287,6 +319,7 @@ def test_archive_ne_lit_que_le_jeu_de_calcul_actif(db_avec_reservation):
     finally:
         conn.close()
     c = cs.valider(_a_valider(db, "2026-06"), acteur=ACTEUR, commentaire="ok", db_path=db)
+    clore_modules(db, "2026-06")
     cs.archiver(c, acteur=ACTEUR, db_path=db)
     conn = get_db(db)
     try:

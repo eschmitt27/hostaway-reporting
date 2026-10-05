@@ -5,6 +5,11 @@
 `ref_cloture_mensuelle` à CLOTURE, statut ARCHIVEE, en une transaction — après une page de
 confirmation ; le service refait tous les contrôles, la route n'en décide aucun.
 Identifiants opaques CLO-/DOC-, jamais un id SQLite brut dans l'URL.
+
+CLÔTURE PAR MODULES : la fiche d'une clôture est un tableau de bord — un bloc par domaine (réservations,
+ménages, charges, banque, factures clients, créances, comptabilité), ses bloqueurs lus dans les vrais
+modules, et « Clôturer ce module ». Le mois entier se clôture quand tous les modules le sont (même route
+de confirmation que la clôture définitive d'avant).
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -12,6 +17,7 @@ from app.template_env import get_templates
 
 from app.readers.banques_reader import date_affichage, datetime_affichage
 from app.services import cloture_flux_service as cloture_flux
+from app.services import cloture_modules_service as cm
 from app.services import clotures_service as cs
 from app.services import clotures_export_service as ces
 from app.services import controles_cloture_service as ctrl_cloture
@@ -27,10 +33,19 @@ def _mois_disponibles(contexte_flux: dict | None = None) -> list[str]:
     from app.services import perimetre_v1_service as v1
     mois = set(ctrl_cloture.load_periods())
     mois |= cloture_flux.mois_concernes(contexte_flux=contexte_flux)
-    mois.add(cs.aujourdhui().strftime("%Y-%m"))
+    courant = cs.aujourdhui().strftime("%Y-%m")
+    mois.add(courant)
+    mois |= {c["mois"] for c in cs.lister()}          # une clôture démarrée ne disparaît jamais de la liste
     # Après le cutover V1, les mois antérieurs ne sont plus des périodes comptables : la liste ne
     # demande plus de les préparer ni de les clôturer (ils restent consultables ailleurs).
     premier = v1.premier_mois()
+    # Tous les mois, du premier mois V1 au mois courant, sont offerts à la clôture : un mois terminé
+    # sans aucun constat du moteur ni mouvement (donc absent des sources ci-dessus) reste à clôturer.
+    if premier and cs.mois_valide(premier) and premier <= courant:
+        annee, m = int(premier[:4]), int(premier[5:7])
+        while f"{annee:04d}-{m:02d}" <= courant:
+            mois.add(f"{annee:04d}-{m:02d}")
+            annee, m = (annee + 1, 1) if m == 12 else (annee, m + 1)
     return sorted((m for m in mois if cs.mois_valide(m) and not (premier and m < premier)),
                   reverse=True)
 
@@ -51,10 +66,11 @@ def clotures_liste(request: Request, statut: str = "", annee: str = "", avec_blo
             continue
         if avec_bloqueurs and prog["nb_bloqueurs"] == 0:
             continue
+        pseudo = c or {"mois": mois, "statut": cs.ST_NON_DEMARREE, "cloture_id_opaque": None}
         lignes.append({
             "mois": mois, "statut": statut_c, "statut_libelle": cs.STATUTS_LIBELLES.get(statut_c, statut_c),
             "cloture_id_opaque": c["cloture_id_opaque"] if c else None,
-            "progression": prog,
+            "progression": prog, "tableau": cm.tableau_de_bord(pseudo, progression=prog),
             "derniere_action": c["date_validation"] or c["date_preparation"] or c["date_creation"] if c else None,
         })
     return templates.TemplateResponse(request, "clotures_list.html", {
@@ -84,15 +100,18 @@ def _normaliser_snapshot(rows: list[dict]) -> list[dict]:
     return out
 
 
-def _fiche_ctx(cloture_opaque: str):
+def _fiche_ctx(cloture_opaque: str, *, avec_controles: bool = True):
+    """Contexte d'une clôture. `avec_controles=False` : le tableau de bord par modules n'affiche pas la liste
+    détaillée des contrôles du moteur — on ne la relit pas (les pages de préparation et de validation, elles,
+    la demandent encore)."""
     c = cs.charger_par_opaque(cloture_opaque)
     if c is None:
         return None
     prog = cs.calcul_progression(c["mois"])
-    live = cs.elements_du_mois(c["mois"])
+    live = cs.elements_du_mois(c["mois"]) if avec_controles else []
     snap_derive = False
     elements_affiches = live
-    if c["statut"] in _STATUTS_AVEC_SNAPSHOT:
+    if avec_controles and c["statut"] in _STATUTS_AVEC_SNAPSHOT:
         snap = cs.snapshot_actif(cloture_opaque)
         if snap:
             elements_affiches = _normaliser_snapshot(snap)
@@ -164,21 +183,96 @@ def cloture_mois(request: Request, mois: str):
     if not cs.mois_valide(mois):
         return RedirectResponse(url="/clotures", status_code=303)
     c = cs.charger_par_mois(mois)
+    prog = cs.calcul_progression(mois)
+    pseudo = c or {"mois": mois, "statut": cs.ST_NON_DEMARREE, "cloture_id_opaque": None}
     return templates.TemplateResponse(request, "cloture_mois.html", {
-        "active_menu": "clotures", "progression": cs.calcul_progression(mois), "cloture": c,
+        "active_menu": "clotures", "progression": prog, "cloture": c,
+        "tableau": cm.tableau_de_bord(pseudo, progression=prog),
         "cloture_statut_libelle": cs.STATUTS_LIBELLES.get(c["statut"], c["statut"]) if c else "",
     })
 
 
 @router.get("/clotures/{cloture_opaque}", response_class=HTMLResponse)
-def cloture_fiche(request: Request, cloture_opaque: str, erreur: str = ""):
-    ctx = _fiche_ctx(cloture_opaque)
+def cloture_fiche(request: Request, cloture_opaque: str, erreur: str = "", message: str = ""):
+    ctx = _fiche_ctx(cloture_opaque, avec_controles=False)
     if ctx is None:
         return templates.TemplateResponse(request, "cloture_fiche.html", {
             "active_menu": "clotures", "cloture": None, "cloture_opaque": cloture_opaque,
         }, status_code=404)
     return templates.TemplateResponse(request, "cloture_fiche.html", {
-        "active_menu": "clotures", "erreur": erreur, **ctx})
+        "active_menu": "clotures", "erreur": erreur, "message": message,
+        "tableau": cm.tableau_de_bord(ctx["cloture"], progression=ctx["progression"]), **ctx})
+
+
+# ── Modules : clôturer, rouvrir ──────────────────────────────────────────────────────────────────
+# Une page de confirmation (GET, n'écrit rien) puis un POST qui refait TOUS les contrôles côté serveur.
+
+def _module_ou_404(request: Request, cloture_opaque: str, cle: str, gabarit: str):
+    c = cs.charger_par_opaque(cloture_opaque)
+    cle = cle.upper()
+    if c is None or cle not in cm.PAR_CLE:
+        return None, None, templates.TemplateResponse(request, gabarit, {
+            "active_menu": "clotures", "cloture": None, "module": None}, status_code=404)
+    tableau = cm.tableau_de_bord(c)
+    return c, next(m for m in tableau["modules"] if m["cle"] == cle), None
+
+
+@router.get("/clotures/{cloture_opaque}/modules/{cle}/cloturer", response_class=HTMLResponse)
+def module_cloturer_confirmation(request: Request, cloture_opaque: str, cle: str, erreur: str = ""):
+    """Ce que « clôturé » veut dire, et ce qui reste éventuellement à traiter. N'écrit rien."""
+    c, module, reponse = _module_ou_404(request, cloture_opaque, cle, "cloture_module_confirmer.html")
+    if reponse is not None:
+        return reponse
+    return templates.TemplateResponse(request, "cloture_module_confirmer.html", {
+        "active_menu": "clotures", "cloture": c, "module": module, "erreur": erreur,
+        "mois_fr": cs.mois_fr(c["mois"])})
+
+
+@router.post("/clotures/{cloture_opaque}/modules/{cle}/cloturer")
+async def module_cloturer(request: Request, cloture_opaque: str, cle: str):
+    from urllib.parse import quote
+    c = cs.charger_par_opaque(cloture_opaque)
+    if c is None:
+        return RedirectResponse(url="/clotures", status_code=303)
+    form = await request.form()
+    retour = f"/clotures/{cloture_opaque}/modules/{cle}/cloturer?erreur="
+    if (form.get("confirmation") or "") != "oui":
+        return RedirectResponse(url=retour + quote("Cochez la confirmation pour clôturer ce module."),
+                                status_code=303)
+    try:
+        cm.cloturer_module(c, cle, acteur="local", commentaire=(form.get("commentaire") or "").strip())
+    except cs.ClotureRefusee as exc:
+        return RedirectResponse(url=retour + quote(str(exc)), status_code=303)
+    nom = cm.PAR_CLE[cle.upper()].libelle
+    texte = quote("Module « " + nom + " » clôturé.")
+    return RedirectResponse(url=f"/clotures/{cloture_opaque}?message={texte}", status_code=303)
+
+
+@router.get("/clotures/{cloture_opaque}/modules/{cle}/rouvrir", response_class=HTMLResponse)
+def module_rouvrir_formulaire(request: Request, cloture_opaque: str, cle: str, erreur: str = ""):
+    c, module, reponse = _module_ou_404(request, cloture_opaque, cle, "cloture_module_rouvrir.html")
+    if reponse is not None:
+        return reponse
+    return templates.TemplateResponse(request, "cloture_module_rouvrir.html", {
+        "active_menu": "clotures", "cloture": c, "module": module, "erreur": erreur,
+        "mois_fr": cs.mois_fr(c["mois"])})
+
+
+@router.post("/clotures/{cloture_opaque}/modules/{cle}/rouvrir")
+async def module_rouvrir(request: Request, cloture_opaque: str, cle: str):
+    from urllib.parse import quote
+    c = cs.charger_par_opaque(cloture_opaque)
+    if c is None:
+        return RedirectResponse(url="/clotures", status_code=303)
+    form = await request.form()
+    retour = f"/clotures/{cloture_opaque}/modules/{cle}/rouvrir?erreur="
+    try:
+        cm.rouvrir_module(c, cle, acteur="local", justification=(form.get("justification") or "").strip())
+    except cs.ClotureRefusee as exc:
+        return RedirectResponse(url=retour + quote(str(exc)), status_code=303)
+    nom = cm.PAR_CLE[cle.upper()].libelle
+    texte = quote("Module « " + nom + " » rouvert.")
+    return RedirectResponse(url=f"/clotures/{cloture_opaque}?message={texte}", status_code=303)
 
 
 @router.post("/clotures/demarrer")
@@ -199,7 +293,7 @@ async def cloture_demarrer(request: Request):
 
 @router.get("/clotures/{cloture_opaque}/preparation", response_class=HTMLResponse)
 def cloture_preparation(request: Request, cloture_opaque: str):
-    ctx = _fiche_ctx(cloture_opaque)
+    ctx = _fiche_ctx(cloture_opaque, avec_controles=False)
     if ctx is None:
         return templates.TemplateResponse(request, "cloture_preparation.html", {
             "active_menu": "clotures", "cloture": None,
@@ -211,7 +305,8 @@ def cloture_preparation(request: Request, cloture_opaque: str):
 
     avancement = suivi_prop.avancement_mois(ctx["cloture"]["mois"]) if ctx.get("cloture") else None
     return templates.TemplateResponse(request, "cloture_preparation.html", {
-        "active_menu": "clotures", "avancement_facturation": avancement, **ctx})
+        "active_menu": "clotures", "avancement_facturation": avancement,
+        "tableau": cm.tableau_de_bord(ctx["cloture"], progression=ctx["progression"]), **ctx})
 
 
 @router.post("/clotures/{cloture_opaque}/passer-a-valider")
@@ -236,7 +331,8 @@ def cloture_validation(request: Request, cloture_opaque: str, erreur: str = ""):
             "active_menu": "clotures", "cloture": None,
         }, status_code=404)
     return templates.TemplateResponse(request, "cloture_validation.html", {
-        "active_menu": "clotures", "erreur": erreur, **ctx})
+        "active_menu": "clotures", "erreur": erreur,
+        "tableau": cm.tableau_de_bord(ctx["cloture"], progression=ctx["progression"]), **ctx})
 
 
 @router.post("/clotures/{cloture_opaque}/valider")
@@ -259,16 +355,14 @@ async def cloture_valider(request: Request, cloture_opaque: str):
 def cloture_definitive_confirmation(request: Request, cloture_opaque: str, erreur: str = ""):
     """Étape de confirmation — n'écrit rien. Le bouton n'y figure que si la clôture paraît
     éligible ; le POST refait de toute façon chaque contrôle."""
-    ctx = _fiche_ctx(cloture_opaque)
+    ctx = _fiche_ctx(cloture_opaque, avec_controles=False)
     if ctx is None:
         return templates.TemplateResponse(request, "cloture_definitive.html", {
             "active_menu": "clotures", "cloture": None}, status_code=404)
-    c, prog = ctx["cloture"], ctx["progression"]
-    motif = (cs.MSG_DEJA_ARCHIVEE if c["statut"] == cs.ST_ARCHIVEE
-             else prog["refus_temporel"] or (cs.MSG_NON_VALIDEE if c["statut"] != cs.ST_VALIDEE else "")
-             or ("" if prog["cloturable"] else cs.message_bloquants(prog["nb_bloqueurs"])))
+    tableau = cm.tableau_de_bord(ctx["cloture"], progression=ctx["progression"])
     return templates.TemplateResponse(request, "cloture_definitive.html", {
-        "active_menu": "clotures", "erreur": erreur, "motif_indisponible": motif, **ctx})
+        "active_menu": "clotures", "erreur": erreur, "motif_indisponible": tableau["motif_mois"],
+        "tableau": tableau, **ctx})
 
 
 @router.post("/clotures/{cloture_opaque}/cloture-definitive")
@@ -288,8 +382,8 @@ async def cloture_definitive(request: Request, cloture_opaque: str):
     except ValueError:
         return RedirectResponse(url=retour + quote(cs.MSG_ETAT_PERIME), status_code=303)
     try:
-        cs.archiver(c, acteur="local", commentaire=(form.get("commentaire") or "").strip(),
-                    version_attendue=version)
+        cs.cloturer_mois(c, acteur="local", commentaire=(form.get("commentaire") or "").strip(),
+                         version_attendue=version)
     except (cs.ClotureRefusee, arch.ArchivageRefuse) as exc:
         return RedirectResponse(url=retour + quote(str(exc)), status_code=303)
     return RedirectResponse(url=f"/clotures/{cloture_opaque}", status_code=303)
@@ -303,7 +397,8 @@ def cloture_historique(request: Request, cloture_opaque: str):
             "active_menu": "clotures", "cloture": None,
         }, status_code=404)
     return templates.TemplateResponse(request, "cloture_historique.html", {
-        "active_menu": "clotures", "cloture": c, "historique": cs.historique(cloture_opaque)})
+        "active_menu": "clotures", "cloture": c, "historique": cs.historique(cloture_opaque),
+        "mois_fr": cs.mois_fr(c["mois"])})
 
 
 @router.get("/clotures/{cloture_opaque}/reouvrir", response_class=HTMLResponse)

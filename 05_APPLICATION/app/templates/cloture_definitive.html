@@ -1,55 +1,66 @@
 {% extends "base.html" %}
-{% block title %}Clôture définitive{% endblock %}
+{% from "_cloture_tableau.html" import icone, pastille %}
+{% block title %}Clôturer le mois{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/static/css/cloture.css">
 
 <div class="page-header">
-  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture</a>
-  <h1 class="page-title">Clôture définitive — {{ progression.mois_fr if cloture else '' }}</h1>
+  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture{% if cloture %} de {{ progression.mois_fr }}{% endif %}</a>
+  <h1 class="page-title">Clôturer le mois{% if cloture %} de {{ progression.mois_fr }}{% endif %}</h1>
 </div>
 
 {% if cloture is none %}
-<div class="alert alert-warning">Clôture introuvable.</div>
+<div class="alert alert-warning" role="alert">Clôture introuvable.</div>
 {% else %}
 
-{% if erreur %}<div class="alert alert-error" data-testid="cloture-definitive-erreur">{{ erreur }}</div>{% endif %}
+<div class="clo-confirm">
+  {% if erreur %}<div class="alert alert-error" role="alert" data-testid="cloture-definitive-erreur">{{ erreur }}</div>{% endif %}
 
-<div class="card mb-md">
-  <h2 class="card-title">Ce qui sera clôturé</h2>
-  <dl class="detail-grid">
-    <div><dt>Mois</dt><dd>{{ progression.mois_fr }}</dd></div>
-    <div><dt>Statut actuel</dt><dd>{{ statut_libelle }}</dd></div>
-    <div><dt>Éléments bloquants</dt><dd data-testid="nb-bloqueurs">{{ progression.nb_bloqueurs }}</dd></div>
-    <div><dt>Validée le</dt><dd>{{ cloture.date_validation|datetime_fr if cloture.date_validation else "—" }}</dd></div>
-  </dl>
-</div>
+  <section class="card" aria-labelledby="clo-ce-qui-sera-cloture">
+    <h2 class="card-title" id="clo-ce-qui-sera-cloture">Ce qui sera clôturé</h2>
+    <dl class="clo-recap">
+      <div><dt>Mois</dt><dd>{{ progression.mois_fr }}</dd></div>
+      <div><dt>Modules clôturés</dt><dd data-testid="nb-modules-clos">{{ tableau.nb_clos }} / {{ tableau.nb_total }}</dd></div>
+      <div><dt>Éléments bloquants</dt><dd data-testid="nb-bloqueurs">{{ progression.nb_bloqueurs }}</dd></div>
+      <div><dt>Statut actuel</dt><dd>{{ statut_libelle }}</dd></div>
+    </dl>
+    <ul class="clo-confirm__liste" aria-label="État de chaque module">
+      {% for m in tableau.modules %}<li>{{ pastille(m) }} <span>{{ m.libelle }}</span></li>{% endfor %}
+    </ul>
+  </section>
 
-{% if motif_indisponible %}
-<div class="alert alert-warning" data-testid="cloture-definitive-indisponible">
-  Clôture définitive impossible : {{ motif_indisponible }}
-</div>
-<a href="/clotures/{{ cloture.cloture_id_opaque }}" class="btn btn-secondary">Revenir à la clôture</a>
-{% else %}
-<div class="alert alert-warning" data-testid="avertissement-cloture-definitive">
-  <div><strong>Cette action clôturera définitivement le mois de {{ progression.mois_fr }}. Les
-    opérations de cette période ne pourront plus être modifiées normalement.</strong>
-    <p style="margin:4px 0 0">L'archive économique du mois est figée et le mois passe à « clôturé ».
-      Les contrôles sont refaits au moment de la confirmation : si un élément bloquant est apparu
-      entre-temps, la clôture est refusée.</p></div>
-</div>
-<form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/cloture-definitive" class="card">
-  <input type="hidden" name="version" value="{{ cloture.version }}">
-  <div class="form-field form-field-full">
-    <label for="f-commentaire">Commentaire (facultatif)</label>
-    <textarea id="f-commentaire" name="commentaire" class="filter-input"></textarea>
+  {% if motif_indisponible %}
+  <div class="alert alert-warning" role="alert" data-testid="cloture-definitive-indisponible">
+    Clôture du mois impossible : {{ motif_indisponible }}
   </div>
-  <label class="mt-md" style="display:block"><input type="checkbox" name="confirmation" value="oui" required>
-    Je confirme la clôture définitive de {{ progression.mois_fr }}.</label>
-  <div class="flex gap-md mt-md">
-    <button type="submit" class="btn btn-primary" data-testid="confirmer-cloture-definitive">Confirmer la clôture définitive</button>
-    <a href="/clotures/{{ cloture.cloture_id_opaque }}" class="btn btn-ghost">Annuler</a>
+  <div class="clo-boutons">
+    <a href="/clotures/{{ cloture.cloture_id_opaque }}" class="btn btn-secondary">Revenir à la clôture</a>
   </div>
-</form>
-{% endif %}
+  {% else %}
+  <div class="alert alert-warning" data-testid="avertissement-cloture-definitive">
+    <div><strong>Cette action clôturera définitivement le mois de {{ progression.mois_fr }}. Les
+      opérations de cette période ne pourront plus être modifiées normalement.</strong>
+      <p style="margin:4px 0 0">L'archive économique du mois est figée et le mois passe à « clôturé ».
+        Les contrôles sont refaits au moment de la confirmation : si un élément bloquant est apparu
+        entre-temps, la clôture est refusée. La date, l'heure et l'auteur de cette décision sont conservés.</p></div>
+  </div>
+  <form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/cloture-definitive" class="card">
+    <input type="hidden" name="version" value="{{ cloture.version }}">
+    <div class="clo-champ">
+      <label for="f-commentaire">Commentaire (facultatif)</label>
+      <textarea id="f-commentaire" name="commentaire" class="filter-input"></textarea>
+    </div>
+    <div class="clo-case">
+      <input type="checkbox" id="f-confirmation" name="confirmation" value="oui" required>
+      <label for="f-confirmation">Je confirme la clôture définitive de {{ progression.mois_fr }}.</label>
+    </div>
+    <div class="clo-boutons">
+      <button type="submit" class="btn btn-primary" data-testid="confirmer-cloture-definitive">Confirmer la clôture définitive</button>
+      <a href="/clotures/{{ cloture.cloture_id_opaque }}" class="btn btn-ghost">Annuler</a>
+    </div>
+  </form>
+  {% endif %}
+</div>
 
 {% endif %}
 {% endblock %}

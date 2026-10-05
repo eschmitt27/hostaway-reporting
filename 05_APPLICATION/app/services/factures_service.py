@@ -271,6 +271,9 @@ def creer(form: dict[str, Any], *, acteur: str = "", db_path=None,
     if d_fac and v1.est_anterieur(d_fac, db_path=db_path):
         return {"ok": False, "code": v1.E_FACTURE_FOURNISSEUR_AVANT_V1,
                 "message": v1.message_debut_v1(db_path=db_path), "detail": d_fac}
+    verrou = _refus_si_verrouille(d_fac[:7], db_path)
+    if verrou:
+        return verrou
     # Le statut visé est résolu AVANT le contrôle de niveau : créer une facture À CONTRÔLER est une
     # écriture opérationnelle (niveau A, production normale), la créer déjà VALIDEE engage la
     # comptabilité (niveau B, double verrou).
@@ -471,6 +474,9 @@ def changer_statut(opaque: str, nouveau: str, *, commentaire: str = "", acteur: 
     # niveau B, donc une décision humaine explicite sur une installation habilitée.
     if not _niveau_requis_ok(nouveau):
         return _refus(E_FLAGS)
+    verrou = _refus_si_verrouille(_mois_de(opaque, db_path), db_path)
+    if verrou:
+        return verrou
 
     # ── §28 — Σ lignes == total document, sinon NON VALIDABLE ────────────────────────────────
     # Contrôle absent jusqu'ici : les deux factures PDF réelles ont été validées le 2026-09-11
@@ -625,12 +631,33 @@ def _mois_est_cloture(mois: str, db_path=None) -> bool:
     `comptabilite_periodes_service.est_fermee` existe aussi, sur `periodes_comptables`, table vide
     en production : s'y fier seul laisserait passer une suppression dans un mois clôturé.
     """
-    from app.services import menages_declarations_service as decl
+    from app.services import cloture_verrous_service as verrous
 
     try:
-        return bool(decl.mois_cloture(mois, db_path=db_path))
+        # Clôture globale du mois (comportement d'origine) OU module « Charges et factures
+        # fournisseurs » clôturé pour ce mois — jamais le module Ménages, qui ne ferme pas ce domaine.
+        return bool(verrous.verrouille(mois, "CHARGES", db_path=db_path))
     except Exception:      # noqa: BLE001 — table absente d'une base de test minimale
         return False
+
+
+def _refus_si_verrouille(mois: str, db_path=None) -> dict[str, Any] | None:
+    """Refus (même code que la clôture mensuelle) si le module « Charges et factures fournisseurs »
+    est clôturé pour le mois de la facture ; None sinon."""
+    from app.services import cloture_verrous_service as verrous
+
+    texte = verrous.refus(mois, "CHARGES", db_path=db_path)
+    return {"ok": False, "code": E_MOIS_CLOTURE, "message": texte} if texte else None
+
+
+def _mois_de(opaque: str, db_path=None) -> str:
+    conn = get_db(db_path)
+    try:
+        r = conn.execute("SELECT date_facture FROM factures WHERE facture_id_opaque = ?",
+                         (opaque,)).fetchone()
+        return _txt(r["date_facture"])[:7] if r else ""
+    finally:
+        conn.close()
 
 
 def _recalculer_menages(mois: str, motif: str, db_path=None) -> dict[str, Any] | None:
@@ -840,6 +867,9 @@ def rouvrir_controle(opaque: str, *, motif: str, acteur: str = "",
                       "Rouvrir le contrôle d'une facture exige d'en donner la raison.")
     if not _niveau_requis_ok(ST_A_CONTROLER):
         return _refus(E_FLAGS)
+    verrou = _refus_si_verrouille(_mois_de(opaque, db_path), db_path)
+    if verrou:
+        return verrou
 
     etat = consequences_constatees(opaque, db_path)
     if not etat["reversible"]:
@@ -881,6 +911,9 @@ def lier_charge(opaque: str, charge_id: str, *, acteur: str = "", db_path=None) 
     et refuse qu'une charge soit rattachée à deux factures."""
     if not _flags_actifs():
         return _refus(E_FLAGS)
+    verrou = _refus_si_verrouille(_mois_de(opaque, db_path), db_path)
+    if verrou:
+        return verrou
     charge_id = _txt(charge_id)
     conn = get_db(db_path)
     try:
@@ -1077,6 +1110,9 @@ def ajouter_ligne(opaque: str, charge_id: str, *, logement_id: str = "",
     deux. Ne crée jamais la charge elle-même (même garde-fou que `lier_charge`)."""
     if not _flags_actifs():
         return _refus(E_FLAGS)
+    verrou = _refus_si_verrouille(_mois_de(opaque, db_path), db_path)
+    if verrou:
+        return verrou
     charge_id = _txt(charge_id)
     if not charge_id:
         return _refus(E_LIGNE_CHARGE_MANQUANTE)

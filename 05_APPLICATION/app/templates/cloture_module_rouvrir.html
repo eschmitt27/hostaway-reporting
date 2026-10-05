@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "_cloture_tableau.html" import icone, pastille %}
+{% block title %}Rouvrir un module{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/cloture.css">
+
+{% if cloture is none or module is none %}
+<div class="page-header">
+  <a href="/clotures" class="back-link">← Clôtures mensuelles</a>
+  <h1 class="page-title">Clôture introuvable</h1>
+</div>
+<div class="alert alert-warning" role="alert">Cette clôture ou ce module n'existe pas.</div>
+{% else %}
+
+<div class="page-header">
+  <a href="/clotures/{{ cloture.cloture_id_opaque }}#module-{{ module.cle|lower }}" class="back-link">← Clôture de {{ mois_fr }}</a>
+  <h1 class="page-title">Rouvrir le module « {{ module.libelle }} »</h1>
+  <p class="page-subtitle">{{ mois_fr|capitalize }}</p>
+</div>
+
+<div class="clo-confirm">
+  {% if erreur %}<div class="alert alert-error" role="alert" data-testid="reouverture-module-erreur">{{ erreur }}</div>{% endif %}
+
+  {% if not module.peut_rouvrir %}
+  <div class="alert alert-warning" role="alert" data-testid="reouverture-module-indisponible">
+    <div><strong>Ce module ne peut pas être rouvert.</strong>
+      <p style="margin:4px 0 0">{% if cloture.statut == 'ARCHIVEE' %}Le mois est clôturé définitivement : ses modules ne se rouvrent plus. Une correction passe par la correction rétroactive.{% else %}Il n'est pas clôturé : il n'y a rien à rouvrir.{% endif %}</p></div>
+  </div>
+  <div class="clo-boutons">
+    <a class="btn btn-secondary" href="/clotures/{{ cloture.cloture_id_opaque }}#module-{{ module.cle|lower }}">Revenir à la clôture</a>
+  </div>
+
+  {% else %}
+  <section class="card" aria-labelledby="clo-etat-module">
+    <h2 class="card-title" id="clo-etat-module">Clôture actuelle</h2>
+    <dl class="clo-recap">
+      <div><dt>État</dt><dd>{{ pastille(module) }}</dd></div>
+      <div><dt>Clôturé le</dt><dd>{{ module.date_cloture_fr or '—' }}</dd></div>
+      <div><dt>Par</dt><dd>{{ module.acteur_cloture or '—' }}</dd></div>
+      {% if module.nb_reouvertures %}<div><dt>Déjà rouvert</dt><dd>{{ module.nb_reouvertures }} fois</dd></div>{% endif %}
+    </dl>
+    {% if module.etat == 'A_REVOIR' %}<p class="clo-alerte" role="status">{{ module.motif_indisponible }}</p>{% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="clo-effets-reouverture">
+    <h2 class="card-title" id="clo-effets-reouverture">Ce que change la réouverture</h2>
+    <ul class="clo-confirm__liste">
+      <li>{{ icone('revoir') }}<span>Le verrou est levé : les écritures de ce module sur {{ mois_fr }} redeviennent possibles.</span></li>
+      {% if module.cle == 'COMPTABILITE' %}<li>{{ icone('revoir') }}<span>La période comptable de {{ mois_fr }} est rouverte, avec la même justification.</span></li>{% endif %}
+      {% if cloture.statut in ('VALIDEE', 'A_VALIDER') %}<li>{{ icone('revoir') }}<span>La clôture du mois, déjà validée, repasse en préparation.</span></li>{% endif %}
+      <li>{{ icone('cadenas') }}<span>La trace de la clôture d'origine (date, auteur) est conservée : la réouverture s'y ajoute, rien n'est effacé.</span></li>
+    </ul>
+  </section>
+
+  <form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/modules/{{ module.cle }}/rouvrir" class="card" data-testid="formulaire-reouverture-module">
+    <div class="clo-champ">
+      <label for="f-justification">Justification (obligatoire)</label>
+      <textarea id="f-justification" name="justification" class="filter-input" required aria-describedby="aide-justification"></textarea>
+      <span id="aide-justification" class="section-note" style="margin:0">Dites pourquoi le module doit être rouvert : elle sera conservée dans l'historique.</span>
+    </div>
+    <div class="clo-boutons">
+      <button type="submit" class="btn btn-primary" data-testid="confirmer-reouverture-module">Rouvrir le module</button>
+      <a href="/clotures/{{ cloture.cloture_id_opaque }}#module-{{ module.cle|lower }}" class="btn btn-ghost">Annuler</a>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

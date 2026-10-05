@@ -268,6 +268,7 @@ def supprimer_non_emise(facture_id: str, *, acteur: str = "", db_path=None) -> d
     comptabilisée est refusée ici, côté serveur, quel que soit l'appelant.
     """
     f = svc.lire(facture_id, db_path=db_path)
+    svc.exiger_facturation_ouverte(f.get("mois"), db_path=db_path)
     if not supprimable_non_emise(f):
         raise svc.FactureProprietaireError(
             "seule une facture non émise (brouillon ou validée, sans numéro) peut être supprimée ; "
@@ -285,6 +286,7 @@ def supprimer_annulee(facture_id: str, *, db_path=None) -> dict[str, Any]:
     acompte, écriture comptable) : supprimer ferait alors disparaître une trace qui compte.
     """
     f = svc.lire(facture_id, db_path=db_path)
+    svc.exiger_facturation_ouverte(f.get("mois"), db_path=db_path)
     if not supprimable(f):
         raise svc.FactureProprietaireError(
             "seule une facture ANNULÉE et jamais émise peut être supprimée ; une facture émise se "
@@ -331,6 +333,9 @@ def supprimer_annulees(*, db_path=None) -> list[str]:
     faites = []
     for f in svc.lister(statut=svc.ST_ANNULE, db_path=db_path):
         if supprimable(f):
-            supprimer_annulee(f["facture_id_opaque"], db_path=db_path)
+            try:
+                supprimer_annulee(f["facture_id_opaque"], db_path=db_path)
+            except svc.FactureProprietaireError:
+                continue          # mois dont le module « Factures clients » est clôturé : conservée
             faites.append(f["facture_id_opaque"])
     return faites

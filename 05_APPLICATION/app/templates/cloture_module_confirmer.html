@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "_cloture_tableau.html" import icone, pastille %}
+{% block title %}Clôturer un module{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/cloture.css">
+
+{% if cloture is none or module is none %}
+<div class="page-header">
+  <a href="/clotures" class="back-link">← Clôtures mensuelles</a>
+  <h1 class="page-title">Clôture introuvable</h1>
+</div>
+<div class="alert alert-warning" role="alert">Cette clôture ou ce module n'existe pas.</div>
+{% else %}
+
+<div class="page-header">
+  <a href="/clotures/{{ cloture.cloture_id_opaque }}#module-{{ module.cle|lower }}" class="back-link">← Clôture de {{ mois_fr }}</a>
+  <h1 class="page-title">Clôturer le module « {{ module.libelle }} »</h1>
+  <p class="page-subtitle">{{ mois_fr|capitalize }}</p>
+</div>
+
+<div class="clo-confirm">
+  {% if erreur %}<div class="alert alert-error" role="alert" data-testid="cloture-module-erreur">{{ erreur }}</div>{% endif %}
+
+  <section class="card" aria-labelledby="clo-etat-module">
+    <h2 class="card-title" id="clo-etat-module">Où en est ce module</h2>
+    <dl class="clo-recap">
+      <div><dt>Module</dt><dd>{{ module.libelle }}</dd></div>
+      <div><dt>Mois</dt><dd>{{ mois_fr }}</dd></div>
+      <div><dt>État</dt><dd>{{ pastille(module) }}</dd></div>
+      <div><dt>Points bloquants</dt><dd data-testid="nb-bloqueurs-module">{{ module.nb_bloqueurs }}</dd></div>
+    </dl>
+  </section>
+
+  {% if not module.peut_cloturer %}
+  <div class="alert alert-warning" role="alert" data-testid="cloture-module-indisponible">
+    <div><strong>Ce module ne peut pas être clôturé pour le moment.</strong>
+      <p style="margin:4px 0 0">{{ module.motif_indisponible or 'Le module est déjà clôturé.' }}</p></div>
+  </div>
+  <div class="clo-boutons">
+    <a class="btn btn-secondary" href="/clotures/{{ cloture.cloture_id_opaque }}#module-{{ module.cle|lower }}">Revenir à la clôture</a>
+  </div>
+
+  {% else %}
+  <section class="card" aria-labelledby="clo-effets">
+    <h2 class="card-title" id="clo-effets">Ce que change la clôture de ce module</h2>
+    <ul class="clo-confirm__liste" data-testid="effets-cloture-module">
+      {% for ligne in module.verrouille %}<li>{{ icone('cadenas') }}<span>{{ ligne }}</span></li>{% endfor %}
+    </ul>
+    <p class="section-note" style="margin:0">Les contrôles sont refaits au moment de la confirmation : si un point bloquant est apparu entre-temps, la clôture est refusée.
+      Le module pourra être rouvert, avec une justification, et la trace de cette clôture sera conservée.</p>
+  </section>
+
+  <form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/modules/{{ module.cle }}/cloturer" class="card" data-testid="formulaire-cloture-module">
+    <div class="clo-champ">
+      <label for="f-commentaire">Commentaire (facultatif)</label>
+      <textarea id="f-commentaire" name="commentaire" class="filter-input"></textarea>
+    </div>
+    <div class="clo-case">
+      <input type="checkbox" id="f-confirmation" name="confirmation" value="oui" required>
+      <label for="f-confirmation">Je confirme la clôture du module « {{ module.libelle }} » pour {{ mois_fr }}.</label>
+    </div>
+    <div class="clo-boutons">
+      <button type="submit" class="btn btn-primary" data-testid="confirmer-cloture-module">Confirmer la clôture du module</button>
+      <a href="/clotures/{{ cloture.cloture_id_opaque }}#module-{{ module.cle|lower }}" class="btn btn-ghost">Annuler</a>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
